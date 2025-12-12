@@ -9,7 +9,6 @@ A multi-platform Minecraft plugin that allows players to apply custom capes via 
 - **Simple commands**: `/cape <type>`, `/cape list`, `/cape clear`
 - **Automatic skin detection**: Extracts player's current skin URL automatically
 - **Cape caching**: API caches generated textures for faster subsequent requests
-- **Backend agnostic**: Works with MineSkin or internal account pool backends
 
 ## Supported Platforms
 

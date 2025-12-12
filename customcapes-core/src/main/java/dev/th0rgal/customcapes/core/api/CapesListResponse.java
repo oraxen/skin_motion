@@ -12,16 +12,10 @@ import java.util.List;
 public final class CapesListResponse {
 
     private boolean success;
-    private String backend;
     private List<CapeInfo> capes;
 
     public boolean isSuccess() {
         return success;
-    }
-
-    @Nullable
-    public String getBackend() {
-        return backend;
     }
 
     @NotNull

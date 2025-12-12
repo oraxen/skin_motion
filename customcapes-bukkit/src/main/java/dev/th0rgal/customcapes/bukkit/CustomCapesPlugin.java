@@ -25,13 +25,11 @@ public final class CustomCapesPlugin extends JavaPlugin {
     private CapesApiClient apiClient;
     private BukkitAudiences audiences;
     private SkinApplierBukkit skinApplier;
-    
+
     /** Cached list of available capes from the API */
     private volatile List<CapesListResponse.CapeInfo> availableCapes;
     /** Set of available cape IDs for quick lookup */
     private final Set<String> availableCapeIds = ConcurrentHashMap.newKeySet();
-    /** The backend type being used by the API */
-    private volatile String apiBackend = "unknown";
 
     @Override
     public void onEnable() {
@@ -70,7 +68,7 @@ public final class CustomCapesPlugin extends JavaPlugin {
         getServer().getScheduler().runTaskAsynchronously(this, () -> {
             try {
                 CapesListResponse response = apiClient.getAvailableCapes();
-                
+
                 // Build new set atomically to avoid race conditions
                 // where isCapeAvailable() returns false during refresh
                 Set<String> newAvailableIds = ConcurrentHashMap.newKeySet();
@@ -79,16 +77,16 @@ public final class CustomCapesPlugin extends JavaPlugin {
                         newAvailableIds.add(cape.getId().toLowerCase());
                     }
                 }
-                
+
                 // Atomically swap the references
                 availableCapes = response.getCapes();
-                apiBackend = response.getBackend() != null ? response.getBackend() : "unknown";
                 availableCapeIds.clear();
                 availableCapeIds.addAll(newAvailableIds);
-                
-                long availableCount = response.getCapes().stream().filter(CapesListResponse.CapeInfo::isAvailable).count();
-                getLogger().info("Fetched " + availableCount + "/" + response.getCapes().size() + 
-                    " available capes from API (backend: " + apiBackend + ")");
+
+                long availableCount = response.getCapes().stream().filter(CapesListResponse.CapeInfo::isAvailable)
+                        .count();
+                getLogger().info("Fetched " + availableCount + "/" + response.getCapes().size() +
+                        " available capes from API");
             } catch (CapesApiClient.CapesApiException e) {
                 getLogger().warning("Failed to fetch available capes: " + e.getMessage());
             }
@@ -160,13 +158,4 @@ public final class CustomCapesPlugin extends JavaPlugin {
         }
         return availableCapeIds.contains(capeId.toLowerCase());
     }
-
-    /**
-     * Get the API backend type ("mineskin" or "internal").
-     */
-    @NotNull
-    public String getApiBackend() {
-        return apiBackend;
-    }
 }
-
