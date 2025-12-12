@@ -1,0 +1,23 @@
+name: CustomCapes
+version: ${version}
+main: dev.th0rgal.customcapes.bukkit.CustomCapesPlugin
+api-version: "1.20"
+description: Apply custom capes to players using the Custom Capes API
+authors:
+  - th0rgal
+website: https://github.com/th0rgal/customcapes
+
+commands:
+  cape:
+    description: Manage your custom cape
+    usage: /<command> <list|clear|<cape_type>>
+    permission: customcapes.use
+
+permissions:
+  customcapes.use:
+    description: Allows using the /cape command
+    default: true
+  customcapes.admin:
+    description: Allows admin commands like reload
+    default: op
+

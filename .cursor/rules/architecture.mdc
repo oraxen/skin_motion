@@ -1,0 +1,56 @@
+---
+alwaysApply: true
+---
+
+## CustomCapes Project Overview
+
+CustomCapes is a multi-platform Minecraft plugin that allows players to use custom capes. The project supports Bukkit/Paper, BungeeCord, and Velocity servers.
+
+### Modules
+
+- `customcapes-core`: Shared logic, models, configuration parsing, and API client for the capes backend.
+- `customcapes-bukkit`: Bukkit/Paper adapter. Entry point: `dev.th0rgal.customcapes.bukkit.CustomCapesPlugin`.
+- `customcapes-bungee`: BungeeCord adapter. Entry point: `dev.th0rgal.customcapes.bungee.CustomCapesPlugin`.
+- `customcapes-velocity`: Velocity adapter. Entry point: `dev.th0rgal.customcapes.velocity.CustomCapesPlugin`.
+
+### Build System
+
+- Gradle (Kotlin DSL) with Java toolchain 17.
+- Plugins:
+  - `com.github.johnrengelman.shadow`: Produces shaded artifacts.
+  - `java`.
+- Repositories: Maven Central, Paper, Spigot, Sonatype snapshots, Velocity, CodeMC.
+- Versioning: `pluginVersion` in `gradle.properties`. Expanded via `${version}` in resource files.
+- Outputs:
+  - Root `shadowJar` builds `build/libs/customcapes-<pluginVersion>.jar` and relocates dependencies.
+  - Each platform subproject also produces a shaded artifact.
+
+### Dependencies
+
+- Core:
+  - `com.google.code.gson:gson:2.10.1`
+  - `net.kyori:adventure-api:4.14.0`
+  - `net.kyori:adventure-text-minimessage:4.14.0`
+  - `org.yaml:snakeyaml:2.2`
+- Bukkit:
+  - compileOnly: `io.papermc.paper:paper-api:1.20.4-R0.1-SNAPSHOT`
+  - implementation: `net.kyori:adventure-platform-bukkit:4.3.2`, `org.bstats:bstats-bukkit:3.0.2`
+- BungeeCord:
+  - compileOnly: `net.md-5:bungeecord-api:1.20-R0.2`
+  - implementation: `net.kyori:adventure-platform-bungeecord:4.3.2`, `org.bstats:bstats-bungeecord:3.0.2`
+- Velocity:
+  - compileOnly: `com.velocitypowered:velocity-api:3.3.0-SNAPSHOT`
+  - annotationProcessor: `com.velocitypowered:velocity-api:3.3.0-SNAPSHOT`
+  - implementation: `org.bstats:bstats-velocity:3.0.2`
+- Relocations (root `shadowJar`): `org.bstats`, `net.kyori.adventure.platform.bukkit`, `org.yaml.snakeyaml` → `dev.th0rgal.customcapes.shaded.*`
+
+### Development Workflow
+
+- Build: `./gradlew build` (root wires `build` to `shadowJar`).
+- Final artifact: `build/libs/customcapes-<pluginVersion>.jar`.
+
+### Maintenance Triggers
+
+- Bump platform APIs or dependencies.
+- Update descriptors for new Minecraft versions.
+- Keep Java toolchain at 17 unless migrating all targets.

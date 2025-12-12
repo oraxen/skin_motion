@@ -1,0 +1,6 @@
+name: CustomCapes
+version: ${version}
+main: dev.th0rgal.customcapes.bungee.CustomCapesBungee
+description: Apply custom capes to players using the Custom Capes API
+author: th0rgal
+

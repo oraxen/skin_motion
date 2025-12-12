@@ -1,0 +1,35 @@
+---
+alwaysApply: true
+---
+
+## Guiding Principles
+
+- **Simplicity and Clarity**: Strive for simple, well-designed code.
+- **Naming Over Comments**: Prefer clear, descriptive naming for classes, methods, and variables. Only add Javadoc to public APIs or when behavior is complex and cannot be conveyed by the name alone.
+
+### Java Conventions
+
+- **Language & Tooling**: Java 17 via the Gradle toolchain. Builds must succeed with `./gradlew build` and produce the shaded plugin.
+- **Nullability**: Use `@NotNull`/`@Nullable` (org.jetbrains) where helpful on public APIs.
+- **Exceptions**: Fail fast with guard clauses. Do not swallow exceptions; use platform/logging utilities.
+- **Immutability**: Prefer `final` for fields/locals where practical. Avoid mutable public state.
+- **Collections**: Prefer standard Java collections; avoid exposing mutable internals.
+- **Dependencies**: Keep external dependencies shaded and relocated through Shadow as configured in the root build.
+
+### Code Organization
+
+- **Modules**: Keep shared logic in `customcapes-core`. Platform-specific glue in `customcapes-bukkit`, `customcapes-bungee`, and `customcapes-velocity`.
+- **Entry Points**: `CustomCapesPlugin` classes per platform handle lifecycle and wire the core.
+- **Naming**: Classes UpperCamelCase, methods/fields lowerCamelCase, constants UPPER_SNAKE_CASE. Match existing package structure.
+
+### Development Environment
+
+- **Java Toolchain**: Java 17. Ensure local JDK matches Gradle's configured toolchain.
+- **Gradle**: Use the provided wrapper. Do not change plugin versions or repos without updating `build.gradle.kts` and `settings.gradle.kts` coherently.
+
+### Style & Formatting
+
+- Match the existing code style and line wrapping. Do not reformat unrelated code in edits.
+- Prefer early returns over deep nesting. Keep methods focused and readable.
+- Avoid catching generic `Exception` unless necessary and always handle meaningfully.
+- Keep imports explicit; avoid wildcard imports.
