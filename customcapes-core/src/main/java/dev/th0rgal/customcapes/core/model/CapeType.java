@@ -31,7 +31,8 @@ public enum CapeType {
     BIRTHDAY("birthday", "Birthday"),
     MIGRATOR("migrator", "Migrator"),
     CHERRY_BLOSSOM("cherry_blossom", "Cherry Blossom"),
-    ANNIVERSARY_15TH("anniversary_15th", "15th Anniversary");
+    ANNIVERSARY_15TH("anniversary_15th", "15th Anniversary"),
+    PRIDE_2021("pride_2021", "Pride 2021");
 
     private static final Map<String, CapeType> BY_ID = Arrays.stream(values())
             .collect(Collectors.toMap(CapeType::getId, Function.identity()));
