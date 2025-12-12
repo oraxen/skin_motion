@@ -88,6 +88,11 @@ public final class CapeCommand implements CommandExecutor, TabCompleter {
         sendMessage(audience, config.getPrefix() + config.getListHeader());
 
         for (CapesListResponse.CapeInfo cape : capes) {
+            // Only show capes that exist in the CapeType enum to match handleApply validation
+            if (!CapeType.isValid(cape.getId())) {
+                continue;
+            }
+            
             String availability = cape.isAvailable() ? "<green>✓" : "<red>✗";
             String entry = config.getListEntry()
                     .replace("%cape%", cape.getId() + " <gray>(" + cape.getName() + ") " + availability);
