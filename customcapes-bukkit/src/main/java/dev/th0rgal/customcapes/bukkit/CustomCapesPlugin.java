@@ -29,7 +29,7 @@ public final class CustomCapesPlugin extends JavaPlugin {
     /** Cached list of available capes from the API */
     private volatile List<CapesListResponse.CapeInfo> availableCapes;
     /** Set of available cape IDs for quick lookup */
-    private final Set<String> availableCapeIds = ConcurrentHashMap.newKeySet();
+    private volatile Set<String> availableCapeIds = ConcurrentHashMap.newKeySet();
 
     @Override
     public void onEnable() {
@@ -80,8 +80,7 @@ public final class CustomCapesPlugin extends JavaPlugin {
 
                 // Atomically swap the references
                 availableCapes = response.getCapes();
-                availableCapeIds.clear();
-                availableCapeIds.addAll(newAvailableIds);
+                availableCapeIds = newAvailableIds;
 
                 long availableCount = response.getCapes().stream().filter(CapesListResponse.CapeInfo::isAvailable)
                         .count();

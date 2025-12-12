@@ -235,7 +235,7 @@ public final class CapeCommand implements CommandExecutor, TabCompleter {
             // Add only available cape types that also exist in the CapeType enum
             // This prevents suggesting capes that would fail enum validation in handleApply
             List<CapesListResponse.CapeInfo> capes = plugin.getAvailableCapes();
-            if (capes != null) {
+            if (capes != null && !capes.isEmpty()) {
                 for (CapesListResponse.CapeInfo cape : capes) {
                     // Only suggest capes that are both available AND valid in the enum
                     if (cape.isAvailable() && CapeType.isValid(cape.getId())) {
@@ -243,7 +243,11 @@ public final class CapeCommand implements CommandExecutor, TabCompleter {
                     }
                 }
             } else {
-                // Fallback to all cape types if not yet loaded
+                // Fallback to all cape types if not yet loaded or empty
+                // Also trigger a refresh if capes list is empty
+                if (capes != null && capes.isEmpty()) {
+                    plugin.refreshAvailableCapes();
+                }
                 for (CapeType capeType : CapeType.values()) {
                     completions.add(capeType.getId());
                 }
