@@ -2,6 +2,8 @@ package dev.th0rgal.customcapes.core.api;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonSyntaxException;
 import dev.th0rgal.customcapes.core.model.CapeType;
 import dev.th0rgal.customcapes.core.model.SkinVariant;
 import dev.th0rgal.customcapes.core.model.TextureData;
@@ -69,6 +71,8 @@ public final class CapesApiClient {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new CapesApiException("Request interrupted", e);
+        } catch (JsonSyntaxException | JsonParseException e) {
+            throw new CapesApiException("Malformed JSON response from API", e);
         }
     }
 
@@ -154,6 +158,8 @@ public final class CapesApiClient {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new CapesApiException("Request interrupted", e);
+        } catch (JsonSyntaxException | JsonParseException e) {
+            throw new CapesApiException("Malformed JSON response from API", e);
         }
     }
 
@@ -189,19 +195,23 @@ public final class CapesApiClient {
             throw new CapesApiException("API returned status " + response.statusCode() + ": " + response.body());
         }
 
-        GenerateResponse generateResponse = GSON.fromJson(response.body(), GenerateResponse.class);
-        
-        if (!generateResponse.isSuccess()) {
-            String error = generateResponse.getError();
-            throw new CapesApiException(error != null ? error : "Unknown API error");
-        }
+        try {
+            GenerateResponse generateResponse = GSON.fromJson(response.body(), GenerateResponse.class);
+            
+            if (!generateResponse.isSuccess()) {
+                String error = generateResponse.getError();
+                throw new CapesApiException(error != null ? error : "Unknown API error");
+            }
 
-        TextureData textureData = generateResponse.toTextureData();
-        if (textureData == null) {
-            throw new CapesApiException("API returned success but no texture data");
-        }
+            TextureData textureData = generateResponse.toTextureData();
+            if (textureData == null) {
+                throw new CapesApiException("API returned success but no texture data");
+            }
 
-        return textureData;
+            return textureData;
+        } catch (JsonSyntaxException | JsonParseException e) {
+            throw new CapesApiException("Malformed JSON response from API", e);
+        }
     }
 
     /**
