@@ -40,9 +40,9 @@ public final class CapesApiClient {
     /**
      * Generate a cape texture for a skin.
      *
-     * @param skinUrl   URL of the player's current skin
-     * @param capeType  The cape to apply
-     * @param variant   The skin model variant (classic/slim)
+     * @param skinUrl  URL of the player's current skin
+     * @param capeType The cape to apply
+     * @param variant  The skin model variant (classic/slim)
      * @return Response containing the generated texture data
      * @throws CapesApiException if the request fails
      */
@@ -50,8 +50,7 @@ public final class CapesApiClient {
     public TextureData generate(
             @NotNull String skinUrl,
             @NotNull CapeType capeType,
-            @NotNull SkinVariant variant
-    ) throws CapesApiException {
+            @NotNull SkinVariant variant) throws CapesApiException {
         GenerateRequest request = new GenerateRequest(skinUrl, capeType, variant);
         String jsonBody = GSON.toJson(request);
 
@@ -79,17 +78,16 @@ public final class CapesApiClient {
     /**
      * Asynchronously generate a cape texture for a skin.
      *
-     * @param skinUrl   URL of the player's current skin
-     * @param capeType  The cape to apply
-     * @param variant   The skin model variant (classic/slim)
+     * @param skinUrl  URL of the player's current skin
+     * @param capeType The cape to apply
+     * @param variant  The skin model variant (classic/slim)
      * @return CompletableFuture containing the generated texture data
      */
     @NotNull
     public CompletableFuture<TextureData> generateAsync(
             @NotNull String skinUrl,
             @NotNull CapeType capeType,
-            @NotNull SkinVariant variant
-    ) {
+            @NotNull SkinVariant variant) {
         GenerateRequest request = new GenerateRequest(skinUrl, capeType, variant);
         String jsonBody = GSON.toJson(request);
 
@@ -142,7 +140,7 @@ public final class CapesApiClient {
 
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            
+
             if (response.statusCode() != 200) {
                 throw new CapesApiException("API returned status " + response.statusCode() + ": " + response.body());
             }
@@ -197,7 +195,7 @@ public final class CapesApiClient {
 
         try {
             GenerateResponse generateResponse = GSON.fromJson(response.body(), GenerateResponse.class);
-            
+
             if (!generateResponse.isSuccess()) {
                 String error = generateResponse.getError();
                 throw new CapesApiException(error != null ? error : "Unknown API error");
@@ -227,4 +225,3 @@ public final class CapesApiClient {
         }
     }
 }
-
