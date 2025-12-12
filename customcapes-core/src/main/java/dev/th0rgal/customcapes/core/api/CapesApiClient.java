@@ -179,11 +179,15 @@ public final class CapesApiClient {
                     if (response.statusCode() != 200) {
                         throw new CapesApiException("API returned status " + response.statusCode());
                     }
-                    CapesListResponse capesResponse = GSON.fromJson(response.body(), CapesListResponse.class);
-                    if (capesResponse == null || !capesResponse.isSuccess()) {
-                        throw new CapesApiException("Failed to fetch available capes");
+                    try {
+                        CapesListResponse capesResponse = GSON.fromJson(response.body(), CapesListResponse.class);
+                        if (capesResponse == null || !capesResponse.isSuccess()) {
+                            throw new CapesApiException("Failed to fetch available capes");
+                        }
+                        return capesResponse;
+                    } catch (JsonParseException e) {
+                        throw new CapesApiException("Malformed JSON response from API", e);
                     }
-                    return capesResponse;
                 });
     }
 
