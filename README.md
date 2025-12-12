@@ -5,7 +5,7 @@ A multi-platform Minecraft plugin that allows players to apply custom capes via 
 ## Features
 
 - **Multi-platform support**: Works on Paper, Spigot, BungeeCord, and Velocity
-- **19 cape types**: Including Minecon capes, Mojang capes, Migrator cape, and more
+- **Dynamic cape availability**: Fetches available capes from API on startup
 - **Simple commands**: `/cape <type>`, `/cape list`, `/cape clear`
 - **Automatic skin detection**: Extracts player's current skin URL automatically
 - **Cape caching**: API caches generated textures for faster subsequent requests
@@ -44,7 +44,11 @@ A multi-platform Minecraft plugin that allows players to apply custom capes via 
 
 ## Available Cape Types
 
-- `vanilla` - Vanilla Cape
+The plugin fetches available capes from the API on startup. Use `/cape list` to see which capes are currently available.
+
+Possible cape types (availability depends on API backend):
+
+- `vanilla` - No cape
 - `minecon_2011` - Minecon 2011
 - `minecon_2012` - Minecon 2012
 - `minecon_2013` - Minecon 2013
@@ -68,7 +72,7 @@ A multi-platform Minecraft plugin that allows players to apply custom capes via 
 
 ```yaml
 api:
-  url: "http://localhost:3000"  # URL to the Custom Capes API
+  url: "https://ccapi.thomas.md"  # URL to the Custom Capes API
   timeout_seconds: 30           # Request timeout
 
 messages:

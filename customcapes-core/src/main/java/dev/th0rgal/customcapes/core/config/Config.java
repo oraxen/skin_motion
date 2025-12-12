@@ -1,6 +1,7 @@
 package dev.th0rgal.customcapes.core.config;
 
 import org.jetbrains.annotations.NotNull;
+import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.*;
@@ -14,7 +15,7 @@ import java.util.Map;
  */
 public final class Config {
 
-    private static final String DEFAULT_API_URL = "http://localhost:3000";
+    private static final String DEFAULT_API_URL = "https://ccapi.thomas.md";
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
 
     private String apiUrl;
@@ -157,7 +158,13 @@ public final class Config {
                 configFile.createNewFile();
             }
             
-            Yaml yaml = new Yaml();
+            DumperOptions options = new DumperOptions();
+            options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+            options.setPrettyFlow(true);
+            options.setIndent(2);
+            options.setWidth(120);
+            
+            Yaml yaml = new Yaml(options);
             try (Writer writer = new FileWriter(configFile)) {
                 yaml.dump(data, writer);
             }
