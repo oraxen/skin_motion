@@ -164,12 +164,12 @@ public final class CustomCapesPlugin extends JavaPlugin {
      */
     public boolean isCapeAvailable(@NotNull String capeId) {
         CapeData data = capeData.get();
-        
+
         // If capes haven't been loaded yet, allow the request - API will validate
         if (data == null) {
             return true;
         }
-        
+
         // Check against the loaded available IDs
         return data.availableIds.contains(capeId.toLowerCase());
     }
