@@ -2,7 +2,7 @@ package dev.th0rgal.customcapes.velocity.commands;
 
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
-import dev.th0rgal.customcapes.core.api.CapesApiClient;
+import dev.th0rgal.customcapes.core.api.SkinApiProvider;
 import dev.th0rgal.customcapes.core.config.Config;
 import dev.th0rgal.customcapes.core.model.CapeType;
 import dev.th0rgal.customcapes.core.model.SkinProperty;
@@ -117,10 +117,10 @@ public final class CapeCommand implements SimpleCommand {
 
         player.sendMessage(MINI_MESSAGE.deserialize(config.getPrefix() + config.getApplying()));
 
-        CapesApiClient apiClient = plugin.getApiClient();
+        SkinApiProvider apiProvider = plugin.getApiProvider();
 
         // Use async API call
-        apiClient.generateAsync(skinUrl, capeType, variant)
+        apiProvider.generateAsync(skinUrl, capeType, variant)
             .thenAccept(textureData -> {
                 if (!player.isActive()) {
                     return;

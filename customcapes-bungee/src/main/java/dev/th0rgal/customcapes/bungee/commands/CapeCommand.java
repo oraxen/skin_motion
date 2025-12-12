@@ -1,7 +1,7 @@
 package dev.th0rgal.customcapes.bungee.commands;
 
 import dev.th0rgal.customcapes.bungee.CustomCapesBungee;
-import dev.th0rgal.customcapes.core.api.CapesApiClient;
+import dev.th0rgal.customcapes.core.api.SkinApiProvider;
 import dev.th0rgal.customcapes.core.config.Config;
 import dev.th0rgal.customcapes.core.model.CapeType;
 import dev.th0rgal.customcapes.core.model.SkinProperty;
@@ -119,11 +119,11 @@ public final class CapeCommand extends Command implements TabExecutor {
 
         sendMessage(audience, config.getPrefix() + config.getApplying());
 
-        CapesApiClient apiClient = plugin.getApiClient();
+        SkinApiProvider apiProvider = plugin.getApiProvider();
 
         plugin.getProxy().getScheduler().runAsync(plugin, () -> {
             try {
-                TextureData textureData = apiClient.generate(skinUrl, capeType, variant);
+                TextureData textureData = apiProvider.generate(skinUrl, capeType, variant);
                 
                 if (!player.isConnected()) {
                     return;
@@ -139,7 +139,7 @@ public final class CapeCommand extends Command implements TabExecutor {
                     sendMessage(playerAudience, "<gray>(served from cache)");
                 }
 
-            } catch (CapesApiClient.CapesApiException e) {
+            } catch (SkinApiProvider.SkinApiException e) {
                 if (!player.isConnected()) {
                     return;
                 }

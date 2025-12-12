@@ -8,7 +8,10 @@ import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
-import dev.th0rgal.customcapes.core.api.CapesApiClient;
+import dev.th0rgal.customcapes.core.api.ApiBackend;
+import dev.th0rgal.customcapes.core.api.CustomCapesApiProvider;
+import dev.th0rgal.customcapes.core.api.MineSkinApiProvider;
+import dev.th0rgal.customcapes.core.api.SkinApiProvider;
 import dev.th0rgal.customcapes.core.config.Config;
 import dev.th0rgal.customcapes.velocity.commands.CapeCommand;
 import org.bstats.velocity.Metrics;
@@ -24,7 +27,7 @@ import java.nio.file.Path;
     id = "customcapes",
     name = "CustomCapes",
     version = "1.0.0",
-    description = "Apply custom capes to players using the Custom Capes API",
+    description = "Apply custom capes to players using various backend APIs",
     authors = {"th0rgal"}
 )
 public final class CustomCapesVelocity {
@@ -35,7 +38,7 @@ public final class CustomCapesVelocity {
     private final Metrics.Factory metricsFactory;
 
     private Config config;
-    private CapesApiClient apiClient;
+    private SkinApiProvider apiProvider;
     private SkinApplierVelocity skinApplier;
 
     @Inject
@@ -56,8 +59,8 @@ public final class CustomCapesVelocity {
         // Load configuration
         config = Config.load(dataDirectory.toFile());
 
-        // Initialize API client
-        apiClient = new CapesApiClient(config.getApiUrl(), config.getTimeoutSeconds());
+        // Initialize API provider based on configuration
+        apiProvider = createApiProvider(config);
 
         // Initialize skin applier
         skinApplier = new SkinApplierVelocity();
@@ -75,14 +78,14 @@ public final class CustomCapesVelocity {
         // Initialize bStats
         metricsFactory.make(this, 23456); // Replace with actual bStats plugin ID
 
-        logger.info("Custom Capes (Velocity) enabled! API: {}", config.getApiUrl());
+        logger.info("Custom Capes (Velocity) enabled! Using backend: {}", apiProvider.getName());
 
         // Check API health in background
         server.getScheduler().buildTask(this, () -> {
-            if (apiClient.isHealthy()) {
-                logger.info("Capes API is reachable and healthy.");
+            if (apiProvider.isHealthy()) {
+                logger.info("{} is reachable and healthy.", apiProvider.getName());
             } else {
-                logger.warn("Capes API is not reachable at {}", config.getApiUrl());
+                logger.warn("{} is not reachable.", apiProvider.getName());
             }
         }).schedule();
     }
@@ -97,8 +100,26 @@ public final class CustomCapesVelocity {
      */
     public void reload() {
         config = Config.load(dataDirectory.toFile());
-        apiClient = new CapesApiClient(config.getApiUrl(), config.getTimeoutSeconds());
-        logger.info("Configuration reloaded.");
+        apiProvider = createApiProvider(config);
+        logger.info("Configuration reloaded. Using backend: {}", apiProvider.getName());
+    }
+
+    /**
+     * Create the appropriate API provider based on configuration.
+     */
+    @NotNull
+    private SkinApiProvider createApiProvider(@NotNull Config config) {
+        if (config.getBackend() == ApiBackend.MINESKIN) {
+            return new MineSkinApiProvider(
+                    config.getMineskinApiKey(),
+                    config.getTimeoutSeconds()
+            );
+        }
+        // Default to CustomCapes API
+        return new CustomCapesApiProvider(
+                config.getCustomCapesUrl(),
+                config.getTimeoutSeconds()
+        );
     }
 
     @NotNull
@@ -116,9 +137,12 @@ public final class CustomCapesVelocity {
         return config;
     }
 
+    /**
+     * Get the configured skin API provider.
+     */
     @NotNull
-    public CapesApiClient getApiClient() {
-        return apiClient;
+    public SkinApiProvider getApiProvider() {
+        return apiProvider;
     }
 
     @NotNull
@@ -126,4 +150,3 @@ public final class CustomCapesVelocity {
         return skinApplier;
     }
 }
-

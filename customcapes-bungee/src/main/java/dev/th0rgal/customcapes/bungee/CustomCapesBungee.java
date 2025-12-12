@@ -1,7 +1,10 @@
 package dev.th0rgal.customcapes.bungee;
 
 import dev.th0rgal.customcapes.bungee.commands.CapeCommand;
-import dev.th0rgal.customcapes.core.api.CapesApiClient;
+import dev.th0rgal.customcapes.core.api.ApiBackend;
+import dev.th0rgal.customcapes.core.api.CustomCapesApiProvider;
+import dev.th0rgal.customcapes.core.api.MineSkinApiProvider;
+import dev.th0rgal.customcapes.core.api.SkinApiProvider;
 import dev.th0rgal.customcapes.core.config.Config;
 import net.kyori.adventure.platform.bungeecord.BungeeAudiences;
 import net.md_5.bungee.api.plugin.Plugin;
@@ -14,7 +17,7 @@ import org.jetbrains.annotations.NotNull;
 public final class CustomCapesBungee extends Plugin {
 
     private Config config;
-    private CapesApiClient apiClient;
+    private SkinApiProvider apiProvider;
     private BungeeAudiences audiences;
     private SkinApplierBungee skinApplier;
 
@@ -23,8 +26,8 @@ public final class CustomCapesBungee extends Plugin {
         // Load configuration
         config = Config.load(getDataFolder());
 
-        // Initialize API client
-        apiClient = new CapesApiClient(config.getApiUrl(), config.getTimeoutSeconds());
+        // Initialize API provider based on configuration
+        apiProvider = createApiProvider(config);
 
         // Initialize Adventure audiences
         audiences = BungeeAudiences.create(this);
@@ -38,14 +41,14 @@ public final class CustomCapesBungee extends Plugin {
         // Initialize bStats
         new Metrics(this, 23456); // Replace with actual bStats plugin ID
 
-        getLogger().info("Custom Capes (BungeeCord) enabled! API: " + config.getApiUrl());
+        getLogger().info("Custom Capes (BungeeCord) enabled! Using backend: " + apiProvider.getName());
 
         // Check API health
         getProxy().getScheduler().runAsync(this, () -> {
-            if (apiClient.isHealthy()) {
-                getLogger().info("Capes API is reachable and healthy.");
+            if (apiProvider.isHealthy()) {
+                getLogger().info(apiProvider.getName() + " is reachable and healthy.");
             } else {
-                getLogger().warning("Capes API is not reachable at " + config.getApiUrl());
+                getLogger().warning(apiProvider.getName() + " is not reachable.");
             }
         });
     }
@@ -63,8 +66,26 @@ public final class CustomCapesBungee extends Plugin {
      */
     public void reload() {
         config = Config.load(getDataFolder());
-        apiClient = new CapesApiClient(config.getApiUrl(), config.getTimeoutSeconds());
-        getLogger().info("Configuration reloaded.");
+        apiProvider = createApiProvider(config);
+        getLogger().info("Configuration reloaded. Using backend: " + apiProvider.getName());
+    }
+
+    /**
+     * Create the appropriate API provider based on configuration.
+     */
+    @NotNull
+    private SkinApiProvider createApiProvider(@NotNull Config config) {
+        if (config.getBackend() == ApiBackend.MINESKIN) {
+            return new MineSkinApiProvider(
+                    config.getMineskinApiKey(),
+                    config.getTimeoutSeconds()
+            );
+        }
+        // Default to CustomCapes API
+        return new CustomCapesApiProvider(
+                config.getCustomCapesUrl(),
+                config.getTimeoutSeconds()
+        );
     }
 
     @NotNull
@@ -72,9 +93,12 @@ public final class CustomCapesBungee extends Plugin {
         return config;
     }
 
+    /**
+     * Get the configured skin API provider.
+     */
     @NotNull
-    public CapesApiClient getApiClient() {
-        return apiClient;
+    public SkinApiProvider getApiProvider() {
+        return apiProvider;
     }
 
     @NotNull
@@ -87,4 +111,3 @@ public final class CustomCapesBungee extends Plugin {
         return skinApplier;
     }
 }
-

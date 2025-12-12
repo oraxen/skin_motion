@@ -1,11 +1,12 @@
 package dev.th0rgal.customcapes.core.config;
 
+import dev.th0rgal.customcapes.core.api.ApiBackend;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -16,8 +17,12 @@ public final class Config {
 
     private static final String DEFAULT_API_URL = "http://localhost:3000";
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
+    private static final ApiBackend DEFAULT_BACKEND = ApiBackend.CUSTOM_CAPES;
 
-    private String apiUrl;
+    // API settings
+    private ApiBackend backend;
+    private String customCapesUrl;
+    private String mineskinApiKey;
     private int timeoutSeconds;
 
     // Messages
@@ -34,12 +39,13 @@ public final class Config {
     private String applying;
 
     private Config() {
-        // Use defaults initially
         setDefaults();
     }
 
     private void setDefaults() {
-        this.apiUrl = DEFAULT_API_URL;
+        this.backend = DEFAULT_BACKEND;
+        this.customCapesUrl = DEFAULT_API_URL;
+        this.mineskinApiKey = "";
         this.timeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
         this.prefix = "<gray>[<gold>Capes</gold>]</gray> ";
         this.capeApplied = "<green>Cape applied successfully!";
@@ -63,13 +69,13 @@ public final class Config {
     @NotNull
     public static Config load(@NotNull File dataFolder) {
         Config config = new Config();
-        
+
         if (!dataFolder.exists()) {
             dataFolder.mkdirs();
         }
 
         File configFile = new File(dataFolder, "config.yml");
-        
+
         if (!configFile.exists()) {
             config.save(configFile);
             return config;
@@ -78,7 +84,7 @@ public final class Config {
         try (InputStream input = new FileInputStream(configFile)) {
             Yaml yaml = new Yaml();
             Map<String, Object> data = yaml.load(input);
-            
+
             if (data != null) {
                 config.loadFromMap(data);
             }
@@ -93,8 +99,23 @@ public final class Config {
     private void loadFromMap(Map<String, Object> data) {
         Map<String, Object> api = (Map<String, Object>) data.get("api");
         if (api != null) {
-            this.apiUrl = getString(api, "url", DEFAULT_API_URL);
+            String backendId = getString(api, "backend", DEFAULT_BACKEND.getId());
+            ApiBackend parsed = ApiBackend.fromId(backendId);
+            this.backend = parsed != null ? parsed : DEFAULT_BACKEND;
+
             this.timeoutSeconds = getInt(api, "timeout_seconds", DEFAULT_TIMEOUT_SECONDS);
+
+            // CustomCapes-specific settings
+            Map<String, Object> customcapes = (Map<String, Object>) api.get("customcapes");
+            if (customcapes != null) {
+                this.customCapesUrl = getString(customcapes, "url", DEFAULT_API_URL);
+            }
+
+            // MineSkin-specific settings
+            Map<String, Object> mineskin = (Map<String, Object>) api.get("mineskin");
+            if (mineskin != null) {
+                this.mineskinApiKey = getString(mineskin, "api_key", "");
+            }
         }
 
         Map<String, Object> messages = (Map<String, Object>) data.get("messages");
@@ -132,11 +153,24 @@ public final class Config {
     public void save(@NotNull File configFile) {
         Map<String, Object> data = new LinkedHashMap<>();
 
+        // API section
         Map<String, Object> api = new LinkedHashMap<>();
-        api.put("url", apiUrl);
+        api.put("backend", backend.getId());
         api.put("timeout_seconds", timeoutSeconds);
+
+        // CustomCapes subsection
+        Map<String, Object> customcapes = new LinkedHashMap<>();
+        customcapes.put("url", customCapesUrl);
+        api.put("customcapes", customcapes);
+
+        // MineSkin subsection
+        Map<String, Object> mineskin = new LinkedHashMap<>();
+        mineskin.put("api_key", mineskinApiKey);
+        api.put("mineskin", mineskin);
+
         data.put("api", api);
 
+        // Messages section
         Map<String, Object> messages = new LinkedHashMap<>();
         messages.put("prefix", prefix);
         messages.put("cape_applied", capeApplied);
@@ -156,8 +190,12 @@ public final class Config {
                 configFile.getParentFile().mkdirs();
                 configFile.createNewFile();
             }
+
+            DumperOptions options = new DumperOptions();
+            options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+            options.setPrettyFlow(true);
             
-            Yaml yaml = new Yaml();
+            Yaml yaml = new Yaml(options);
             try (Writer writer = new FileWriter(configFile)) {
                 yaml.dump(data, writer);
             }
@@ -168,9 +206,31 @@ public final class Config {
 
     // Getters
 
+    /**
+     * Get the configured API backend.
+     */
     @NotNull
-    public String getApiUrl() {
-        return apiUrl;
+    public ApiBackend getBackend() {
+        return backend;
+    }
+
+    /**
+     * Get the Custom Capes API URL.
+     * Only used when backend is CUSTOM_CAPES.
+     */
+    @NotNull
+    public String getCustomCapesUrl() {
+        return customCapesUrl;
+    }
+
+    /**
+     * Get the MineSkin API key.
+     * Only used when backend is MINESKIN.
+     * May be empty for unauthenticated requests.
+     */
+    @NotNull
+    public String getMineskinApiKey() {
+        return mineskinApiKey;
     }
 
     public int getTimeoutSeconds() {
@@ -231,5 +291,17 @@ public final class Config {
     public String getApplying() {
         return applying;
     }
-}
 
+    // ============================================
+    // Backwards compatibility - deprecated getters
+    // ============================================
+
+    /**
+     * @deprecated Use {@link #getCustomCapesUrl()} instead
+     */
+    @Deprecated
+    @NotNull
+    public String getApiUrl() {
+        return customCapesUrl;
+    }
+}

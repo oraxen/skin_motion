@@ -1,7 +1,10 @@
 package dev.th0rgal.customcapes.bukkit;
 
 import dev.th0rgal.customcapes.bukkit.commands.CapeCommand;
-import dev.th0rgal.customcapes.core.api.CapesApiClient;
+import dev.th0rgal.customcapes.core.api.ApiBackend;
+import dev.th0rgal.customcapes.core.api.CustomCapesApiProvider;
+import dev.th0rgal.customcapes.core.api.MineSkinApiProvider;
+import dev.th0rgal.customcapes.core.api.SkinApiProvider;
 import dev.th0rgal.customcapes.core.config.Config;
 import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import org.bstats.bukkit.Metrics;
@@ -16,7 +19,7 @@ public final class CustomCapesPlugin extends JavaPlugin {
     private static CustomCapesPlugin instance;
 
     private Config config;
-    private CapesApiClient apiClient;
+    private SkinApiProvider apiProvider;
     private BukkitAudiences audiences;
     private SkinApplierBukkit skinApplier;
 
@@ -27,8 +30,8 @@ public final class CustomCapesPlugin extends JavaPlugin {
         // Load configuration
         config = Config.load(getDataFolder());
 
-        // Initialize API client
-        apiClient = new CapesApiClient(config.getApiUrl(), config.getTimeoutSeconds());
+        // Initialize API provider based on configuration
+        apiProvider = createApiProvider(config);
 
         // Initialize Adventure audiences for messaging
         audiences = BukkitAudiences.create(this);
@@ -44,14 +47,14 @@ public final class CustomCapesPlugin extends JavaPlugin {
         // Initialize bStats metrics
         new Metrics(this, 23456); // Replace with actual bStats plugin ID
 
-        getLogger().info("Custom Capes enabled! API: " + config.getApiUrl());
+        getLogger().info("Custom Capes enabled! Using backend: " + apiProvider.getName());
 
         // Check API health in background
         getServer().getScheduler().runTaskAsynchronously(this, () -> {
-            if (apiClient.isHealthy()) {
-                getLogger().info("Capes API is reachable and healthy.");
+            if (apiProvider.isHealthy()) {
+                getLogger().info(apiProvider.getName() + " is reachable and healthy.");
             } else {
-                getLogger().warning("Capes API is not reachable at " + config.getApiUrl());
+                getLogger().warning(apiProvider.getName() + " is not reachable.");
             }
         });
     }
@@ -70,8 +73,26 @@ public final class CustomCapesPlugin extends JavaPlugin {
      */
     public void reload() {
         config = Config.load(getDataFolder());
-        apiClient = new CapesApiClient(config.getApiUrl(), config.getTimeoutSeconds());
-        getLogger().info("Configuration reloaded.");
+        apiProvider = createApiProvider(config);
+        getLogger().info("Configuration reloaded. Using backend: " + apiProvider.getName());
+    }
+
+    /**
+     * Create the appropriate API provider based on configuration.
+     */
+    @NotNull
+    private SkinApiProvider createApiProvider(@NotNull Config config) {
+        if (config.getBackend() == ApiBackend.MINESKIN) {
+            return new MineSkinApiProvider(
+                    config.getMineskinApiKey(),
+                    config.getTimeoutSeconds()
+            );
+        }
+        // Default to CustomCapes API
+        return new CustomCapesApiProvider(
+                config.getCustomCapesUrl(),
+                config.getTimeoutSeconds()
+        );
     }
 
     @NotNull
@@ -84,9 +105,12 @@ public final class CustomCapesPlugin extends JavaPlugin {
         return config;
     }
 
+    /**
+     * Get the configured skin API provider.
+     */
     @NotNull
-    public CapesApiClient getApiClient() {
-        return apiClient;
+    public SkinApiProvider getApiProvider() {
+        return apiProvider;
     }
 
     @NotNull
@@ -99,4 +123,3 @@ public final class CustomCapesPlugin extends JavaPlugin {
         return skinApplier;
     }
 }
-

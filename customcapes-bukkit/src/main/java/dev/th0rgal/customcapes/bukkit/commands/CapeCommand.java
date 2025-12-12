@@ -1,7 +1,7 @@
 package dev.th0rgal.customcapes.bukkit.commands;
 
 import dev.th0rgal.customcapes.bukkit.CustomCapesPlugin;
-import dev.th0rgal.customcapes.core.api.CapesApiClient;
+import dev.th0rgal.customcapes.core.api.SkinApiProvider;
 import dev.th0rgal.customcapes.core.config.Config;
 import dev.th0rgal.customcapes.core.model.CapeType;
 import dev.th0rgal.customcapes.core.model.SkinProperty;
@@ -145,11 +145,11 @@ public final class CapeCommand implements CommandExecutor, TabCompleter {
         sendMessage(audience, config.getPrefix() + config.getApplying());
 
         // Make async API call
-        CapesApiClient apiClient = plugin.getApiClient();
+        SkinApiProvider apiProvider = plugin.getApiProvider();
 
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
-                TextureData textureData = apiClient.generate(skinUrl, capeType, variant);
+                TextureData textureData = apiProvider.generate(skinUrl, capeType, variant);
                 
                 // Apply skin on main thread
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
@@ -168,7 +168,7 @@ public final class CapeCommand implements CommandExecutor, TabCompleter {
                     }
                 });
 
-            } catch (CapesApiClient.CapesApiException e) {
+            } catch (SkinApiProvider.SkinApiException e) {
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (!player.isOnline()) {
                         return;

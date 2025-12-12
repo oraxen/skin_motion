@@ -25,6 +25,21 @@ CustomCapes is a multi-platform Minecraft plugin that allows players to use cust
   - Root `shadowJar` builds `build/libs/customcapes-<pluginVersion>.jar` and relocates dependencies.
   - Each platform subproject also produces a shaded artifact.
 
+### API Backends
+
+CustomCapes supports multiple skin generation backends, configurable in `config.yml`:
+
+- **CustomCapes API** (`customcapes`): Self-hosted backend with full cape support.
+- **MineSkin API** (`mineskin`): Public API from mineskin.org with cape support via UUID mapping.
+
+The backend is selected via `api.backend` in config and can be changed at runtime via reload.
+
+Key classes:
+- `SkinApiProvider`: Interface for all backends
+- `CustomCapesApiProvider`: Implementation for CustomCapes API
+- `MineSkinApiProvider`: Implementation for MineSkin API
+- `ApiBackend`: Enum of available backends
+
 ### Dependencies
 
 - Core:
