@@ -70,19 +70,24 @@ public final class CustomCapesPlugin extends JavaPlugin {
         getServer().getScheduler().runTaskAsynchronously(this, () -> {
             try {
                 CapesListResponse response = apiClient.getAvailableCapes();
-                availableCapes = response.getCapes();
-                apiBackend = response.getBackend() != null ? response.getBackend() : "unknown";
                 
-                // Update available IDs set
-                availableCapeIds.clear();
-                for (CapesListResponse.CapeInfo cape : availableCapes) {
+                // Build new set atomically to avoid race conditions
+                // where isCapeAvailable() returns false during refresh
+                Set<String> newAvailableIds = ConcurrentHashMap.newKeySet();
+                for (CapesListResponse.CapeInfo cape : response.getCapes()) {
                     if (cape.isAvailable()) {
-                        availableCapeIds.add(cape.getId().toLowerCase());
+                        newAvailableIds.add(cape.getId().toLowerCase());
                     }
                 }
                 
-                long availableCount = availableCapes.stream().filter(CapesListResponse.CapeInfo::isAvailable).count();
-                getLogger().info("Fetched " + availableCount + "/" + availableCapes.size() + 
+                // Atomically swap the references
+                availableCapes = response.getCapes();
+                apiBackend = response.getBackend() != null ? response.getBackend() : "unknown";
+                availableCapeIds.clear();
+                availableCapeIds.addAll(newAvailableIds);
+                
+                long availableCount = response.getCapes().stream().filter(CapesListResponse.CapeInfo::isAvailable).count();
+                getLogger().info("Fetched " + availableCount + "/" + response.getCapes().size() + 
                     " available capes from API (backend: " + apiBackend + ")");
             } catch (CapesApiClient.CapesApiException e) {
                 getLogger().warning("Failed to fetch available capes: " + e.getMessage());
@@ -145,8 +150,14 @@ public final class CustomCapesPlugin extends JavaPlugin {
 
     /**
      * Check if a cape type ID is available.
+     * If capes haven't been loaded yet, returns true to allow the request
+     * (the API will validate availability server-side).
      */
     public boolean isCapeAvailable(@NotNull String capeId) {
+        // If capes haven't been loaded yet, allow the request - API will validate
+        if (availableCapes == null || availableCapeIds.isEmpty()) {
+            return true;
+        }
         return availableCapeIds.contains(capeId.toLowerCase());
     }
 
