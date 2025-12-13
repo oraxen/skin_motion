@@ -37,7 +37,8 @@ public enum CapeType {
     PROGRESS_PRIDE("progress_pride", "Progress Pride"),
     MOJANG_OFFICE("mojang_office", "Mojang Office"),
     YEARNING("yearning", "Yearning"),
-    FOLLOWERS("followers", "Followers");
+    FOLLOWERS("followers", "Followers"),
+    VANILLA_CAPE("vanilla_cape", "Vanilla Cape");
 
     private static final Map<String, CapeType> BY_ID = Arrays.stream(values())
             .collect(Collectors.toMap(CapeType::getId, Function.identity()));
