@@ -1,7 +1,6 @@
-rootProject.name = "customcapes"
+rootProject.name = "skinmotion"
 
-include("customcapes-core")
-include("customcapes-bukkit")
-include("customcapes-bungee")
-include("customcapes-velocity")
-
+include("skinmotion-core")
+include("skinmotion-bukkit")
+include("skinmotion-bungee")
+include("skinmotion-velocity")

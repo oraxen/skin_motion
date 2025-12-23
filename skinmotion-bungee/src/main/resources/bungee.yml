@@ -1,0 +1,5 @@
+name: SkinMotion
+version: ${version}
+main: dev.th0rgal.skinmotion.bungee.SkinMotionBungee
+description: Animated Minecraft skins with real-time web dashboard
+author: th0rgal

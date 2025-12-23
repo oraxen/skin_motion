@@ -18,8 +18,8 @@ alwaysApply: true
 
 ### Code Organization
 
-- **Modules**: Keep shared logic in `customcapes-core`. Platform-specific glue in `customcapes-bukkit`, `customcapes-bungee`, and `customcapes-velocity`.
-- **Entry Points**: `CustomCapesPlugin` classes per platform handle lifecycle and wire the core.
+- **Modules**: Keep shared logic in `customskin-core`. Platform-specific glue in `customskin-bukkit`, `customskin-bungee`, and `customskin-velocity`.
+- **Entry Points**: `CustomSkinPlugin` classes per platform handle lifecycle and wire the core.
 - **Naming**: Classes UpperCamelCase, methods/fields lowerCamelCase, constants UPPER_SNAKE_CASE. Match existing package structure.
 
 ### Development Environment

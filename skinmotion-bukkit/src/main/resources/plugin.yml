@@ -1,0 +1,31 @@
+name: SkinMotion
+version: ${version}
+main: dev.th0rgal.skinmotion.bukkit.SkinMotionPlugin
+api-version: "1.20"
+description: Animated Minecraft skins with real-time web dashboard
+authors:
+  - th0rgal
+website: https://skinmotion.gg
+
+commands:
+  skin:
+    description: Manage your animated skin
+    usage: /<command> <link|refresh|status|reload>
+    permission: skinmotion.use
+
+permissions:
+  skinmotion.use:
+    description: Allows using the /skin command
+    default: true
+  skinmotion.link:
+    description: Allows using /skin link to get a dashboard link
+    default: true
+  skinmotion.refresh:
+    description: Allows using /skin refresh to manually refresh skin
+    default: true
+  skinmotion.status:
+    description: Allows using /skin status to check connection status
+    default: true
+  skinmotion.reload:
+    description: Allows reloading the plugin configuration
+    default: op

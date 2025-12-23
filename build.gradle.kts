@@ -12,7 +12,7 @@ allprojects {
     apply(plugin = "java")
     apply(plugin = "com.github.johnrengelman.shadow")
 
-    group = "dev.th0rgal.customcapes"
+    group = "dev.th0rgal.skinmotion"
     version = pluginVersion
 
     java {
@@ -45,43 +45,53 @@ allprojects {
     }
 }
 
-project(":customcapes-core") {
+project(":skinmotion-core") {
     dependencies {
         implementation("com.google.code.gson:gson:2.10.1")
         implementation("net.kyori:adventure-api:4.14.0")
         implementation("net.kyori:adventure-text-minimessage:4.14.0")
         implementation("org.yaml:snakeyaml:2.2")
+        implementation("org.java-websocket:Java-WebSocket:1.5.6")
         compileOnly("org.jetbrains:annotations:24.0.1")
     }
 }
 
-project(":customcapes-bukkit") {
+project(":skinmotion-bukkit") {
     dependencies {
         compileOnly("io.papermc.paper:paper-api:1.20.4-R0.1-SNAPSHOT")
         compileOnly("org.jetbrains:annotations:24.0.1")
-        compileOnly(project(path = ":customcapes-core", configuration = "shadow"))
+        implementation(project(":skinmotion-core"))
 
         implementation("net.kyori:adventure-platform-bukkit:4.3.2")
         implementation("org.bstats:bstats-bukkit:3.0.2")
+        implementation("org.java-websocket:Java-WebSocket:1.5.6")
+        implementation("org.yaml:snakeyaml:2.2")
+    }
+    
+    tasks.shadowJar {
+        relocate("org.bstats", "dev.th0rgal.skinmotion.shaded.bstats")
+        relocate("net.kyori.adventure.platform.bukkit", "dev.th0rgal.skinmotion.shaded.adventure.platform.bukkit")
+        relocate("org.yaml.snakeyaml", "dev.th0rgal.skinmotion.shaded.snakeyaml")
+        relocate("org.java_websocket", "dev.th0rgal.skinmotion.shaded.websocket")
     }
 }
 
-project(":customcapes-bungee") {
+project(":skinmotion-bungee") {
     dependencies {
         compileOnly("net.md-5:bungeecord-api:1.20-R0.2")
         compileOnly("org.jetbrains:annotations:24.0.1")
-        compileOnly(project(path = ":customcapes-core", configuration = "shadow"))
+        compileOnly(project(path = ":skinmotion-core", configuration = "shadow"))
 
         implementation("net.kyori:adventure-platform-bungeecord:4.3.2")
         implementation("org.bstats:bstats-bungeecord:3.0.2")
     }
 }
 
-project(":customcapes-velocity") {
+project(":skinmotion-velocity") {
     dependencies {
         compileOnly("com.velocitypowered:velocity-api:3.3.0-SNAPSHOT")
         compileOnly("org.jetbrains:annotations:24.0.1")
-        compileOnly(project(path = ":customcapes-core", configuration = "shadow"))
+        compileOnly(project(path = ":skinmotion-core", configuration = "shadow"))
         annotationProcessor("com.velocitypowered:velocity-api:3.3.0-SNAPSHOT")
 
         implementation("org.bstats:bstats-velocity:3.0.2")
@@ -89,9 +99,10 @@ project(":customcapes-velocity") {
 }
 
 tasks.shadowJar {
-    relocate("org.bstats", "dev.th0rgal.customcapes.shaded.bstats")
-    relocate("net.kyori.adventure.platform.bukkit", "dev.th0rgal.customcapes.shaded.adventure.platform.bukkit")
-    relocate("org.yaml.snakeyaml", "dev.th0rgal.customcapes.shaded.snakeyaml")
+    relocate("org.bstats", "dev.th0rgal.skinmotion.shaded.bstats")
+    relocate("net.kyori.adventure.platform.bukkit", "dev.th0rgal.skinmotion.shaded.adventure.platform.bukkit")
+    relocate("org.yaml.snakeyaml", "dev.th0rgal.skinmotion.shaded.snakeyaml")
+    relocate("org.java_websocket", "dev.th0rgal.skinmotion.shaded.websocket")
     
     manifest {
         attributes(
@@ -103,17 +114,16 @@ tasks.shadowJar {
             "Build-OS" to "${System.getProperty("os.name")} ${System.getProperty("os.arch")} ${System.getProperty("os.version")}"
         )
     }
-    archiveFileName.set("customcapes-${pluginVersion}.jar")
+    archiveFileName.set("skinmotion-${pluginVersion}.jar")
 }
 
 dependencies {
-    implementation(project(path = ":customcapes-core", configuration = "shadow"))
-    implementation(project(path = ":customcapes-bukkit", configuration = "shadow"))
-    implementation(project(path = ":customcapes-bungee", configuration = "shadow"))
-    implementation(project(path = ":customcapes-velocity", configuration = "shadow"))
+    implementation(project(path = ":skinmotion-core", configuration = "shadow"))
+    implementation(project(path = ":skinmotion-bukkit", configuration = "shadow"))
+    implementation(project(path = ":skinmotion-bungee", configuration = "shadow"))
+    implementation(project(path = ":skinmotion-velocity", configuration = "shadow"))
 }
 
 tasks.build {
     dependsOn(tasks.shadowJar)
 }
-
