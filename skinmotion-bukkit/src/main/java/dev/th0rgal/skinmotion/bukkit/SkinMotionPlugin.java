@@ -1,6 +1,7 @@
 package dev.th0rgal.skinmotion.bukkit;
 
 import dev.th0rgal.skinmotion.bukkit.commands.SkinCommand;
+import dev.th0rgal.skinmotion.bukkit.scheduler.PlatformScheduler;
 import dev.th0rgal.skinmotion.bukkit.storage.SkinStorage;
 import dev.th0rgal.skinmotion.core.api.SkinApiClient;
 import dev.th0rgal.skinmotion.core.config.Config;
@@ -92,7 +93,7 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
         new Metrics(this, 23456);
 
         // Start animation task
-        animationTask = new SkinAnimationTask(this);
+        animationTask = new SkinAnimationTask(this, new PlatformScheduler(this));
         animationTask.start();
 
         // Connect to WebSocket
@@ -284,6 +285,9 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         playerSkins.remove(player.getUniqueId());
+        if (animationTask != null) {
+            animationTask.removePlayer(player.getUniqueId());
+        }
 
         // Notify API that player is offline
         if (webSocketClient != null && webSocketClient.isConnected()) {
