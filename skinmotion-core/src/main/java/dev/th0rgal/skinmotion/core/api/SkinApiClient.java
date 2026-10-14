@@ -74,7 +74,8 @@ public final class SkinApiClient {
                     }
                     try {
                         TokenResponse tokenResponse = GSON.fromJson(response.body(), TokenResponse.class);
-                        if (!tokenResponse.success) {
+                        if (tokenResponse == null || !tokenResponse.success
+                                || tokenResponse.dashboard_url == null || tokenResponse.dashboard_url.isBlank()) {
                             throw new SkinApiException("Failed to generate token");
                         }
                         return tokenResponse;
@@ -86,6 +87,10 @@ public final class SkinApiClient {
 
     /**
      * Fetch a player's skin configuration.
+     *
+     * The future completes with null only when the API reports that the player has no skin.
+     * Transport errors and unexpected responses complete exceptionally so callers never
+     * mistake an outage for a deleted skin.
      *
      * @param minecraftUuid Player's Minecraft UUID
      * @return The skin configuration, or null if not found
@@ -100,21 +105,35 @@ public final class SkinApiClient {
                 .build();
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(response -> {
-                    if (response.statusCode() != 200) {
-                        return null;
-                    }
-                    try {
-                        SkinResponse skinResponse = GSON.fromJson(response.body(), SkinResponse.class);
-                        if (!skinResponse.success || skinResponse.skin == null) {
-                            return null;
-                        }
-                        return skinResponse.skin;
-                    } catch (JsonParseException e) {
-                        logger.warning("Failed to parse skin response: " + e.getMessage());
-                        return null;
-                    }
-                });
+                .thenApply(response -> parseSkinResponse(response.statusCode(), response.body()));
+    }
+
+    /**
+     * Interpret a GET /skins/{uuid} response.
+     * The API answers HTTP 200 with {@code {"success":false,"error":"Skin not found"}} for unknown players.
+     */
+    @Nullable
+    static SkinConfig parseSkinResponse(int statusCode, @Nullable String body) {
+        if (statusCode == 404) {
+            return null;
+        }
+        if (statusCode != 200) {
+            throw new SkinApiException("Failed to fetch skin: HTTP " + statusCode);
+        }
+        SkinResponse skinResponse;
+        try {
+            skinResponse = GSON.fromJson(body, SkinResponse.class);
+        } catch (JsonParseException e) {
+            throw new SkinApiException("Failed to parse skin response", e);
+        }
+        if (skinResponse == null) {
+            throw new SkinApiException("Empty skin response");
+        }
+        if (!skinResponse.success || skinResponse.skin == null) {
+            return null;
+        }
+        SkinConfig skin = skinResponse.skin.sanitized();
+        return skin.getFrameCount() > 0 ? skin : null;
     }
 
     /**

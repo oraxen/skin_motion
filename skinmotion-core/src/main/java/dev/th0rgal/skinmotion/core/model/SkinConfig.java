@@ -4,6 +4,9 @@ import com.google.gson.annotations.SerializedName;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -30,7 +33,7 @@ public class SkinConfig {
     private int frameDurationTicks;
 
     @SerializedName("enabled")
-    private boolean enabled;
+    private Boolean enabled;
 
     @SerializedName("frames")
     private List<SkinFrame> frames;
@@ -87,8 +90,11 @@ public class SkinConfig {
         return frameDurationTicks > 0 ? frameDurationTicks : 10;
     }
 
+    /**
+     * Whether the animation is enabled. Defaults to true when the API omits the field.
+     */
     public boolean isEnabled() {
-        return enabled;
+        return enabled == null || enabled;
     }
 
     @Nullable
@@ -104,7 +110,54 @@ public class SkinConfig {
      * Check if this skin has animation (more than 1 frame).
      */
     public boolean isAnimated() {
-        return frames != null && frames.size() > 1 && enabled;
+        return frames != null && frames.size() > 1 && isEnabled();
+    }
+
+    /**
+     * Return a copy whose frames are ordered by {@code frame_index} and stripped of
+     * frames lacking a signed texture, so frame positions match the animation order.
+     */
+    @NotNull
+    public SkinConfig sanitized() {
+        List<SkinFrame> validFrames = new ArrayList<>();
+        if (frames != null) {
+            for (SkinFrame frame : frames) {
+                if (frame != null && !frame.getTextureValue().isEmpty() && !frame.getTextureSignature().isEmpty()) {
+                    validFrames.add(frame);
+                }
+            }
+        }
+        validFrames.sort(Comparator.comparingInt(SkinFrame::getFrameIndex));
+
+        SkinConfig copy = new SkinConfig(getMinecraftUuid(), getMinecraftUsername(), getCapeType(), getLoopMode(),
+                frameDurationTicks, isEnabled(), Collections.unmodifiableList(validFrames));
+        copy.id = id;
+        return copy;
+    }
+
+    /**
+     * Check whether two configs would render identically (same frames, timing and mode).
+     */
+    public boolean hasSameContent(@Nullable SkinConfig other) {
+        if (other == null) {
+            return false;
+        }
+        if (getFrameCount() != other.getFrameCount()
+                || getFrameDurationTicks() != other.getFrameDurationTicks()
+                || isEnabled() != other.isEnabled()
+                || !getLoopMode().equals(other.getLoopMode())
+                || !getCapeType().equals(other.getCapeType())) {
+            return false;
+        }
+        for (int i = 0; i < getFrameCount(); i++) {
+            SkinFrame a = getFrame(i);
+            SkinFrame b = other.getFrame(i);
+            if (!a.getTextureValue().equals(b.getTextureValue())
+                    || !a.getTextureSignature().equals(b.getTextureSignature())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -133,7 +186,7 @@ public class SkinConfig {
                 ", capeType='" + capeType + '\'' +
                 ", loopMode='" + loopMode + '\'' +
                 ", frameDurationTicks=" + frameDurationTicks +
-                ", enabled=" + enabled +
+                ", enabled=" + isEnabled() +
                 ", frameCount=" + getFrameCount() +
                 '}';
     }
