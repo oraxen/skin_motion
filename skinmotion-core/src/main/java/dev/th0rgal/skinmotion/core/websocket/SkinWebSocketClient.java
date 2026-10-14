@@ -1,8 +1,10 @@
 package dev.th0rgal.skinmotion.core.websocket;
 
 import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.exceptions.WebsocketNotConnectedException;
 import org.java_websocket.handshake.ServerHandshake;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.net.URI;
 import java.util.Map;
@@ -21,7 +23,9 @@ public class SkinWebSocketClient extends WebSocketClient {
 
     private final Logger logger;
     private final Consumer<WsMessage> messageHandler;
+    private final Runnable connectedHandler;
     private final ScheduledExecutorService scheduler;
+    private final Object stateLock = new Object();
     private ScheduledFuture<?> heartbeatTask;
     private ScheduledFuture<?> reconnectTask;
     
@@ -34,11 +38,13 @@ public class SkinWebSocketClient extends WebSocketClient {
             @NotNull URI serverUri,
             @NotNull String apiKey,
             @NotNull Logger logger,
-            @NotNull Consumer<WsMessage> messageHandler
+            @NotNull Consumer<WsMessage> messageHandler,
+            @Nullable Runnable connectedHandler
     ) {
         super(serverUri, Map.of("X-API-Key", apiKey));
         this.logger = logger;
         this.messageHandler = messageHandler;
+        this.connectedHandler = connectedHandler;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "SkinWS-Scheduler");
             t.setDaemon(true);
@@ -51,12 +57,28 @@ public class SkinWebSocketClient extends WebSocketClient {
 
     @Override
     public void onOpen(ServerHandshake handshake) {
+        if (!shouldReconnect) {
+            // disconnect() raced with the handshake: drop the late connection
+            close();
+            return;
+        }
         logger.info("[WebSocket] Connected to API");
         isConnecting = false;
-        reconnectAttempts = 0;
+        synchronized (stateLock) {
+            reconnectAttempts = 0;
+        }
         
         // Start heartbeat
         startHeartbeat();
+
+        // Let the platform re-announce state the API may have missed while disconnected
+        if (connectedHandler != null) {
+            try {
+                connectedHandler.run();
+            } catch (RuntimeException e) {
+                logger.warning("[WebSocket] Error in connect handler: " + e.getMessage());
+            }
+        }
     }
 
     @Override
@@ -114,73 +136,94 @@ public class SkinWebSocketClient extends WebSocketClient {
         shouldReconnect = false;
         stopHeartbeat();
         
-        if (reconnectTask != null) {
-            reconnectTask.cancel(false);
-            reconnectTask = null;
+        synchronized (stateLock) {
+            if (reconnectTask != null) {
+                reconnectTask.cancel(false);
+                reconnectTask = null;
+            }
         }
         
-        if (isOpen()) {
-            close();
-        }
+        // Also closes a handshake that is still in progress
+        close();
         
-        scheduler.shutdown();
+        scheduler.shutdownNow();
     }
 
     /**
      * Send a player online notification.
      */
     public void sendPlayerOnline(String uuid, String username) {
-        if (isOpen()) {
-            send(WsMessage.playerOnline(uuid, username));
-        }
+        sendIfOpen(WsMessage.playerOnline(uuid, username));
     }
 
     /**
      * Send a player offline notification.
      */
     public void sendPlayerOffline(String uuid) {
-        if (isOpen()) {
-            send(WsMessage.playerOffline(uuid));
+        sendIfOpen(WsMessage.playerOffline(uuid));
+    }
+
+    private void sendIfOpen(String message) {
+        if (!isOpen()) {
+            return;
+        }
+        try {
+            send(message);
+        } catch (WebsocketNotConnectedException e) {
+            // Closed between the check and the send; the reconnect handler re-announces state
         }
     }
 
     private void startHeartbeat() {
-        stopHeartbeat();
-        heartbeatTask = scheduler.scheduleAtFixedRate(() -> {
-            if (isOpen()) {
-                send(WsMessage.ping());
+        synchronized (stateLock) {
+            stopHeartbeat();
+            if (scheduler.isShutdown()) {
+                return;
             }
-        }, 30, 30, TimeUnit.SECONDS);
+            heartbeatTask = scheduler.scheduleAtFixedRate(() -> sendIfOpen(WsMessage.ping()), 30, 30, TimeUnit.SECONDS);
+        }
     }
 
     private void stopHeartbeat() {
-        if (heartbeatTask != null) {
-            heartbeatTask.cancel(false);
-            heartbeatTask = null;
+        synchronized (stateLock) {
+            if (heartbeatTask != null) {
+                heartbeatTask.cancel(false);
+                heartbeatTask = null;
+            }
         }
     }
 
     private void scheduleReconnect() {
-        if (!shouldReconnect || reconnectTask != null) {
+        synchronized (stateLock) {
+            if (!shouldReconnect || reconnectTask != null || scheduler.isShutdown()) {
+                return;
+            }
+            
+            reconnectAttempts++;
+            int delay = Math.min(reconnectAttempts * 5, MAX_RECONNECT_DELAY_SECONDS);
+            
+            logger.info("[WebSocket] Reconnecting in " + delay + " seconds (attempt " + reconnectAttempts + ")");
+            
+            reconnectTask = scheduler.schedule(this::attemptReconnect, delay, TimeUnit.SECONDS);
+        }
+    }
+
+    private void attemptReconnect() {
+        synchronized (stateLock) {
+            reconnectTask = null;
+        }
+        if (!shouldReconnect || isOpen()) {
             return;
         }
-        
-        reconnectAttempts++;
-        int delay = Math.min(reconnectAttempts * 5, MAX_RECONNECT_DELAY_SECONDS);
-        
-        logger.info("[WebSocket] Reconnecting in " + delay + " seconds (attempt " + reconnectAttempts + ")");
-        
-        reconnectTask = scheduler.schedule(() -> {
-            reconnectTask = null;
-            if (shouldReconnect && !isOpen() && !isConnecting) {
-                try {
-                    reconnect();
-                } catch (Exception e) {
-                    logger.warning("[WebSocket] Reconnect failed: " + e.getMessage());
-                    scheduleReconnect();
-                }
-            }
-        }, delay, TimeUnit.SECONDS);
+        try {
+            isConnecting = true;
+            // reconnect() waits for the previous socket threads to finish, then connects asynchronously
+            reconnect();
+        } catch (Exception e) {
+            isConnecting = false;
+            logger.warning("[WebSocket] Reconnect failed: " + e.getMessage());
+            scheduleReconnect();
+        }
     }
 
     /**

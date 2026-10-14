@@ -1,18 +1,23 @@
 package dev.th0rgal.skinmotion.bukkit;
 
 import dev.th0rgal.skinmotion.bukkit.commands.SkinCommand;
+import dev.th0rgal.skinmotion.bukkit.message.Audiences;
 import dev.th0rgal.skinmotion.bukkit.scheduler.PlatformScheduler;
 import dev.th0rgal.skinmotion.bukkit.storage.SkinStorage;
 import dev.th0rgal.skinmotion.core.api.SkinApiClient;
 import dev.th0rgal.skinmotion.core.config.Config;
 import dev.th0rgal.skinmotion.core.model.SkinConfig;
+import dev.th0rgal.skinmotion.core.model.SkinFrame;
 import dev.th0rgal.skinmotion.core.websocket.SkinWebSocketClient;
 import dev.th0rgal.skinmotion.core.websocket.WsMessage;
-import net.kyori.adventure.platform.bukkit.BukkitAudiences;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
+import org.bukkit.command.CommandSender;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -26,6 +31,7 @@ import java.net.URI;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -37,13 +43,14 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
 
     private static SkinMotionPlugin instance;
 
-    private Config config;
-    private SkinApiClient skinApiClient;
-    private BukkitAudiences audiences;
+    private volatile Config config;
+    private volatile SkinApiClient skinApiClient;
+    private PlatformScheduler scheduler;
+    private Audiences audiences;
     private SkinApplierBukkit skinApplier;
     private SkinAnimationTask animationTask;
-    private SkinWebSocketClient webSocketClient;
-    private SkinStorage skinStorage;
+    private volatile SkinWebSocketClient webSocketClient;
+    private volatile SkinStorage skinStorage;
 
     /** Cache of player skin configs (in-memory) */
     private final Map<UUID, SkinConfig> playerSkins = new ConcurrentHashMap<>();
@@ -51,6 +58,7 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         instance = this;
+        scheduler = new PlatformScheduler(this);
 
         // Load configuration
         config = Config.load(getDataFolder());
@@ -61,29 +69,26 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
             skinStorage.initialize();
         } catch (SQLException e) {
             getLogger().severe("Failed to initialize skin storage: " + e.getMessage());
+            skinStorage = null;
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
 
         // Initialize API client
-        skinApiClient = new SkinApiClient(
-                config.getApiUrl(),
-                config.getPluginApiKey(),
-                config.getTimeoutSeconds(),
-                getLogger()
-        );
+        skinApiClient = createApiClient();
 
         // Initialize Adventure audiences for messaging
-        audiences = BukkitAudiences.create(this);
+        audiences = new Audiences(this);
 
         // Initialize skin applier
-        skinApplier = new SkinApplierBukkit(this);
+        skinApplier = new SkinApplierBukkit(this, scheduler);
 
         // Register commands
         SkinCommand skinCommand = new SkinCommand(this);
-        if (getCommand("skin") != null) {
-            getCommand("skin").setExecutor(skinCommand);
-            getCommand("skin").setTabCompleter(skinCommand);
+        PluginCommand command = getCommand("skin");
+        if (command != null) {
+            command.setExecutor(skinCommand);
+            command.setTabCompleter(skinCommand);
         }
 
         // Register event listeners
@@ -93,37 +98,54 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
         new Metrics(this, 23456);
 
         // Start animation task
-        animationTask = new SkinAnimationTask(this, new PlatformScheduler(this));
+        animationTask = new SkinAnimationTask(this, scheduler);
         animationTask.start();
 
         // Connect to WebSocket
         connectWebSocket();
 
+        if (PlatformScheduler.isFolia()) {
+            getLogger().info("Folia detected - using region schedulers");
+        }
         getLogger().info("SkinMotion enabled! API: " + config.getApiUrl());
+    }
+
+    private SkinApiClient createApiClient() {
+        return new SkinApiClient(
+                config.getApiUrl(),
+                config.getPluginApiKey(),
+                config.getTimeoutSeconds(),
+                getLogger()
+        );
     }
 
     /**
      * Connect to the API WebSocket for real-time updates.
      */
     private void connectWebSocket() {
-        if (config.getPluginApiKey().isEmpty()) {
+        if (!hasApiKey()) {
             getLogger().warning("No plugin_api_key configured. WebSocket disabled.");
             return;
         }
 
         try {
-            String wsUrl = config.getApiUrl()
-                    .replace("https://", "wss://")
-                    .replace("http://", "ws://")
+            String apiUrl = config.getApiUrl().endsWith("/")
+                    ? config.getApiUrl().substring(0, config.getApiUrl().length() - 1)
+                    : config.getApiUrl();
+            String wsUrl = apiUrl
+                    .replaceFirst("^https://", "wss://")
+                    .replaceFirst("^http://", "ws://")
                     + "/ws/plugin";
 
-            webSocketClient = new SkinWebSocketClient(
+            SkinWebSocketClient client = new SkinWebSocketClient(
                     new URI(wsUrl),
                     config.getPluginApiKey(),
                     getLogger(),
-                    this::handleWebSocketMessage
+                    this::handleWebSocketMessage,
+                    this::onWebSocketConnected
             );
-            webSocketClient.connectAsync();
+            webSocketClient = client;
+            client.connectAsync();
             getLogger().info("WebSocket connecting to: " + wsUrl);
         } catch (Exception e) {
             getLogger().warning("Failed to initialize WebSocket: " + e.getMessage());
@@ -131,44 +153,51 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
     }
 
     /**
+     * Re-announce online players and catch up on updates missed while disconnected.
+     */
+    private void onWebSocketConnected() {
+        scheduler.runGlobal(() -> {
+            SkinWebSocketClient client = webSocketClient;
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if (client != null) {
+                    client.sendPlayerOnline(player.getUniqueId().toString(), player.getName());
+                }
+                syncSkin(player, false);
+            }
+        });
+    }
+
+    /**
      * Handle incoming WebSocket messages.
      */
     private void handleWebSocketMessage(WsMessage message) {
         switch (message.getType()) {
-            case SKIN_UPDATED -> {
-                String uuid = message.getString("minecraft_uuid");
-                String username = message.getString("minecraft_username");
-                if (uuid != null) {
-                    getLogger().info("Received skin update for " + username + " (" + uuid + ")");
-                    // Find online player and refresh their skin
-                    getServer().getScheduler().runTask(this, () -> {
-                        Player player = Bukkit.getPlayer(UUID.fromString(uuid));
-                        if (player != null && player.isOnline()) {
-                            refreshPlayerSkin(player);
-                        }
-                    });
+            case SKIN_UPDATED, CONFIG_CHANGED -> {
+                UUID playerId = parseUuid(message.getString("minecraft_uuid"));
+                if (playerId == null) {
+                    return;
                 }
-            }
-            case CONFIG_CHANGED -> {
-                String uuid = message.getString("minecraft_uuid");
-                if (uuid != null) {
-                    getLogger().info("Received config change for " + uuid);
-                    // Update the cached config
-                    getServer().getScheduler().runTask(this, () -> {
-                        Player player = Bukkit.getPlayer(UUID.fromString(uuid));
-                        if (player != null && player.isOnline()) {
-                            // Just refresh the whole config
-                            refreshPlayerSkin(player);
-                        }
-                    });
+                getLogger().info("Received " + message.getType().getJsonType() + " for " + playerId);
+                Player player = Bukkit.getPlayer(playerId);
+                if (player != null && player.isOnline()) {
+                    syncSkin(player, true);
                 }
-            }
-            case PONG -> {
-                // Heartbeat response, ignore
             }
             default -> {
-                // Ignore other messages
+                // Pong and other messages need no handling
             }
+        }
+    }
+
+    @Nullable
+    private static UUID parseUuid(@Nullable String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException e) {
+            return null;
         }
     }
 
@@ -178,120 +207,148 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
         UUID playerId = player.getUniqueId();
 
         // Notify API that player is online
-        if (webSocketClient != null && webSocketClient.isConnected()) {
-            webSocketClient.sendPlayerOnline(
-                    playerId.toString(),
-                    player.getName()
-            );
+        SkinWebSocketClient client = webSocketClient;
+        if (client != null) {
+            client.sendPlayerOnline(playerId.toString(), player.getName());
         }
 
-        // Load skin - first try local storage, then fetch from API if needed
-        getServer().getScheduler().runTaskAsynchronously(this, () -> {
-            // Try loading from local SQLite first
-            SkinConfig localSkin = skinStorage.loadSkin(playerId);
-            
-            if (localSkin != null) {
-                // Use locally persisted skin
-                playerSkins.put(playerId, localSkin);
+        // Load skin - first try local storage, then fetch from API in the background
+        scheduler.runAsync(() -> {
+            SkinStorage storage = skinStorage;
+            SkinConfig localSkin = storage != null ? storage.loadSkin(playerId) : null;
+
+            if (localSkin != null && cacheSkin(player, localSkin)) {
                 getLogger().info("Loaded persisted skin for " + player.getName() +
                         " (" + localSkin.getFrameCount() + " frames)");
-
-                // Apply first frame to player
-                if (localSkin.getFirstFrame() != null) {
-                    getServer().getScheduler().runTask(this, () -> {
-                        if (player.isOnline()) {
-                            skinApplier.applySkin(player, localSkin.getFirstFrame().toSkinProperty());
-                        }
-                    });
-                }
-                
-                // Still fetch from API in background to check for updates
-                fetchAndUpdateSkinFromApi(player, false);
-            } else {
-                // No local skin, fetch from API
-                fetchAndUpdateSkinFromApi(player, true);
+                applyFirstFrame(player, localSkin);
             }
 
+            // Still fetch from API to check for updates
+            syncSkin(player, false);
+
             // Generate and send dashboard link if configured
-            if (config.isSendLinkOnJoin()) {
+            if (config.isSendLinkOnJoin() && hasApiKey()) {
                 sendDashboardLink(player);
             }
         });
     }
 
     /**
-     * Fetch skin from API and optionally apply immediately.
+     * Cache a skin for an online player.
+     *
+     * @return false if the player left in the meantime (nothing is cached)
      */
-    private void fetchAndUpdateSkinFromApi(Player player, boolean applyImmediately) {
-        skinApiClient.getSkinConfig(player.getUniqueId().toString())
+    private boolean cacheSkin(Player player, SkinConfig skin) {
+        UUID playerId = player.getUniqueId();
+        playerSkins.put(playerId, skin);
+        if (!player.isOnline()) {
+            // Quit raced with this async load: don't leak the entry
+            playerSkins.remove(playerId);
+            return false;
+        }
+        return true;
+    }
+
+    private void applyFirstFrame(Player player, SkinConfig skin) {
+        SkinFrame firstFrame = skin.getFirstFrame();
+        if (firstFrame != null) {
+            skinApplier.applySkin(player, firstFrame.toSkinProperty());
+        }
+    }
+
+    /**
+     * Fetch a player's skin from the API, then cache, persist and apply it.
+     * A skin deleted on the dashboard restores the player's original skin.
+     * API errors keep the current skin untouched.
+     *
+     * @param notify Whether to tell the player about the outcome
+     */
+    public void syncSkin(@NotNull Player player, boolean notify) {
+        UUID playerId = player.getUniqueId();
+        skinApiClient.getSkinConfig(playerId.toString())
                 .thenAccept(apiSkin -> {
-                    if (apiSkin != null) {
-                        UUID playerId = player.getUniqueId();
-                        
-                        // Check if skin has changed (compare frame count and first frame)
-                        SkinConfig currentSkin = playerSkins.get(playerId);
-                        boolean skinChanged = currentSkin == null ||
-                                currentSkin.getFrameCount() != apiSkin.getFrameCount() ||
-                                !isSameFirstFrame(currentSkin, apiSkin);
+                    if (!player.isOnline()) {
+                        return;
+                    }
 
-                        if (skinChanged || applyImmediately) {
-                            playerSkins.put(playerId, apiSkin);
-                            
-                            // Persist to local storage
-                            skinStorage.saveSkin(apiSkin);
-                            
-                            getLogger().info((applyImmediately ? "Fetched" : "Updated") + 
-                                    " skin for " + player.getName() +
-                                    " (" + apiSkin.getFrameCount() + " frames)");
+                    SkinConfig currentSkin = playerSkins.get(playerId);
+                    if (apiSkin == null) {
+                        removeSkin(player, notify);
+                        return;
+                    }
 
-                            // Apply first frame to player
-                            if (apiSkin.getFirstFrame() != null && (applyImmediately || skinChanged)) {
-                                getServer().getScheduler().runTask(this, () -> {
-                                    if (player.isOnline()) {
-                                        skinApplier.applySkin(player, apiSkin.getFirstFrame().toSkinProperty());
-                                    }
-                                });
-                            }
+                    if (apiSkin.hasSameContent(currentSkin)) {
+                        if (notify) {
+                            send(player, Component.text("Your skin is already up to date.", NamedTextColor.GREEN));
                         }
-                    } else if (applyImmediately) {
-                        // API returned no skin - if we had one locally, it was deleted
-                        SkinConfig currentSkin = playerSkins.remove(player.getUniqueId());
-                        if (currentSkin != null) {
-                            skinStorage.deleteSkin(player.getUniqueId());
-                        }
+                        return;
+                    }
+
+                    if (!cacheSkin(player, apiSkin)) {
+                        return;
+                    }
+                    SkinStorage storage = skinStorage;
+                    if (storage != null) {
+                        storage.saveSkin(apiSkin);
+                    }
+                    if (animationTask != null) {
+                        animationTask.resetPlayer(playerId);
+                    }
+
+                    getLogger().info("Synced skin for " + player.getName() +
+                            " (" + apiSkin.getFrameCount() + " frames)");
+                    applyFirstFrame(player, apiSkin);
+                    if (notify) {
+                        send(player, Component.text("Your skin has been updated!", NamedTextColor.GREEN));
                     }
                 })
                 .exceptionally(e -> {
-                    if (applyImmediately) {
-                        getLogger().warning("Failed to fetch skin for " + player.getName() + 
-                                ": " + e.getMessage());
+                    Throwable cause = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
+                    getLogger().warning("Failed to fetch skin for " + player.getName() + ": " + cause.getMessage());
+                    if (notify) {
+                        send(player, Component.text("Could not reach the skin service, try again later.",
+                                NamedTextColor.RED));
                     }
                     return null;
                 });
     }
 
-    /**
-     * Check if two skin configs have the same first frame signature.
-     */
-    private boolean isSameFirstFrame(SkinConfig a, SkinConfig b) {
-        if (a == null || b == null) return false;
-        var frameA = a.getFirstFrame();
-        var frameB = b.getFirstFrame();
-        if (frameA == null || frameB == null) return frameA == frameB;
-        return frameA.getTextureSignature().equals(frameB.getTextureSignature());
+    private void removeSkin(Player player, boolean notify) {
+        UUID playerId = player.getUniqueId();
+        SkinConfig removed = playerSkins.remove(playerId);
+        SkinStorage storage = skinStorage;
+        boolean persisted = storage != null && storage.hasSkin(playerId);
+        if (persisted) {
+            storage.deleteSkin(playerId);
+        }
+        if (removed == null && !persisted) {
+            if (notify) {
+                send(player, Component.text("You don't have a SkinMotion skin yet. Use /skin link to create one.",
+                        NamedTextColor.YELLOW));
+            }
+            return;
+        }
+        if (animationTask != null) {
+            animationTask.resetPlayer(playerId);
+        }
+        skinApplier.restoreOriginalSkin(player);
+        send(player, Component.text("Your custom skin has been removed.", NamedTextColor.YELLOW));
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-        playerSkins.remove(player.getUniqueId());
+        UUID playerId = player.getUniqueId();
+        playerSkins.remove(playerId);
         if (animationTask != null) {
-            animationTask.removePlayer(player.getUniqueId());
+            animationTask.removePlayer(playerId);
         }
+        skinApplier.clearStoredSkin(playerId);
 
         // Notify API that player is offline
-        if (webSocketClient != null && webSocketClient.isConnected()) {
-            webSocketClient.sendPlayerOffline(player.getUniqueId().toString());
+        SkinWebSocketClient client = webSocketClient;
+        if (client != null) {
+            client.sendPlayerOffline(playerId.toString());
         }
     }
 
@@ -299,96 +356,66 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
      * Send dashboard link to a player.
      */
     public void sendDashboardLink(Player player) {
+        if (!hasApiKey()) {
+            send(player, Component.text("Dashboard links are not configured on this server.", NamedTextColor.RED));
+            getLogger().warning("Cannot generate dashboard link: no plugin_api_key configured.");
+            return;
+        }
         skinApiClient.generateToken(
                 player.getUniqueId().toString(),
                 player.getName(),
                 config.getServerId()
-        ).thenAccept(response -> {
-            getServer().getScheduler().runTask(this, () -> {
-                if (!player.isOnline()) return;
-                
-                audiences.player(player).sendMessage(
-                        Component.text()
-                                .append(Component.text("[SkinMotion] ", NamedTextColor.GREEN))
-                                .append(Component.text("Click here to customize your skin: ", NamedTextColor.GRAY))
-                                .append(Component.text(response.dashboard_url, NamedTextColor.AQUA)
-                                        .clickEvent(net.kyori.adventure.text.event.ClickEvent.openUrl(response.dashboard_url))
-                                        .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(
-                                                Component.text("Click to open dashboard", NamedTextColor.YELLOW))))
-                                .build()
-                );
-            });
-        }).exceptionally(e -> {
-            getLogger().warning("Failed to generate dashboard link for " + player.getName() + ": " + e.getMessage());
+        ).thenAccept(response -> send(player,
+                Component.text()
+                        .append(Component.text("[SkinMotion] ", NamedTextColor.GREEN))
+                        .append(Component.text("Click here to customize your skin: ", NamedTextColor.GRAY))
+                        .append(Component.text(response.dashboard_url, NamedTextColor.AQUA)
+                                .clickEvent(ClickEvent.openUrl(response.dashboard_url))
+                                .hoverEvent(HoverEvent.showText(
+                                        Component.text("Click to open dashboard", NamedTextColor.YELLOW))))
+                        .build()
+        )).exceptionally(e -> {
+            Throwable cause = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
+            getLogger().warning("Failed to generate dashboard link for " + player.getName() + ": " + cause.getMessage());
+            send(player, Component.text("Could not generate a dashboard link, try again later.", NamedTextColor.RED));
             return null;
         });
     }
 
     /**
-     * Refresh a player's skin from the API.
-     * Called when WebSocket notifies us of a skin update.
+     * Send a message to an online player from any thread.
      */
-    public void refreshPlayerSkin(Player player) {
-        getServer().getScheduler().runTaskAsynchronously(this, () -> {
-            skinApiClient.getSkinConfig(player.getUniqueId().toString())
-                    .thenAccept(skinConfig -> {
-                        if (skinConfig != null) {
-                            playerSkins.put(player.getUniqueId(), skinConfig);
-                            
-                            // Persist to local storage
-                            skinStorage.saveSkin(skinConfig);
-                            
-                            getLogger().info("Refreshed skin config for " + player.getName() +
-                                    " (" + skinConfig.getFrameCount() + " frames)");
-
-                            // Apply first frame to player
-                            if (skinConfig.getFirstFrame() != null) {
-                                getServer().getScheduler().runTask(this, () -> {
-                                    if (!player.isOnline()) return;
-                                    
-                                    skinApplier.applySkin(player, skinConfig.getFirstFrame().toSkinProperty());
-                                    audiences.player(player).sendMessage(
-                                            Component.text("Your skin has been updated!", NamedTextColor.GREEN)
-                                    );
-                                });
-                            }
-
-                            // Reset animation state
-                            if (animationTask != null) {
-                                animationTask.resetPlayer(player.getUniqueId());
-                            }
-                        } else {
-                            // Skin was deleted, restore original
-                            getServer().getScheduler().runTask(this, () -> {
-                                if (!player.isOnline()) return;
-                                
-                                playerSkins.remove(player.getUniqueId());
-                                skinStorage.deleteSkin(player.getUniqueId());
-                                skinApplier.restoreOriginalSkin(player);
-                                audiences.player(player).sendMessage(
-                                        Component.text("Your custom skin has been removed.", NamedTextColor.YELLOW)
-                                );
-                            });
-                        }
-                    })
-                    .exceptionally(e -> {
-                        getLogger().warning("Failed to refresh skin for " + player.getName() + ": " + e.getMessage());
-                        return null;
-                    });
+    public void send(@NotNull Player player, @NotNull Component message) {
+        scheduler.runForEntity(player, () -> {
+            if (player.isOnline()) {
+                audiences.sender(player).sendMessage(message);
+            }
         });
+    }
+
+    /**
+     * Reply to a command sender. Must be called from the sender's thread (e.g. a command handler).
+     */
+    public void reply(@NotNull CommandSender sender, @NotNull Component message) {
+        audiences.sender(sender).sendMessage(message);
     }
 
     @Override
     public void onDisable() {
         // Disconnect WebSocket
-        if (webSocketClient != null) {
-            webSocketClient.disconnect();
-            webSocketClient = null;
+        SkinWebSocketClient client = webSocketClient;
+        webSocketClient = null;
+        if (client != null) {
+            client.disconnect();
         }
 
         if (animationTask != null) {
             animationTask.stop();
             animationTask = null;
+        }
+
+        if (scheduler != null) {
+            scheduler.cancelAll();
         }
 
         if (audiences != null) {
@@ -411,16 +438,13 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
      */
     public void reload() {
         config = Config.load(getDataFolder());
-        skinApiClient = new SkinApiClient(
-                config.getApiUrl(),
-                config.getPluginApiKey(),
-                config.getTimeoutSeconds(),
-                getLogger()
-        );
+        skinApiClient = createApiClient();
 
         // Reconnect WebSocket
-        if (webSocketClient != null) {
-            webSocketClient.disconnect();
+        SkinWebSocketClient client = webSocketClient;
+        webSocketClient = null;
+        if (client != null) {
+            client.disconnect();
         }
         connectWebSocket();
 
@@ -445,11 +469,6 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
     }
 
     @NotNull
-    public BukkitAudiences getAudiences() {
-        return audiences;
-    }
-
-    @NotNull
     public SkinApplierBukkit getSkinApplier() {
         return skinApplier;
     }
@@ -463,17 +482,27 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
         return playerSkins;
     }
 
+    public boolean hasApiKey() {
+        return !config.getPluginApiKey().isEmpty();
+    }
+
     /**
      * Check if WebSocket is connected.
      */
     public boolean isWebSocketConnected() {
-        return webSocketClient != null && webSocketClient.isConnected();
+        SkinWebSocketClient client = webSocketClient;
+        return client != null && client.isConnected();
+    }
+
+    public boolean isAnimationAvailable() {
+        return animationTask != null && animationTask.isAvailable();
     }
 
     /**
      * Check if a player has a persisted skin in local storage.
      */
     public boolean hasPersistedSkin(UUID playerId) {
-        return skinStorage != null && skinStorage.hasSkin(playerId);
+        SkinStorage storage = skinStorage;
+        return storage != null && storage.hasSkin(playerId);
     }
 }
