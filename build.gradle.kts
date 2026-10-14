@@ -35,8 +35,7 @@ allprojects {
         maven { url = uri("https://repo.papermc.io/repository/maven-public/") }
         maven { url = uri("https://hub.spigotmc.org/nexus/content/repositories/snapshots/") }
         maven { url = uri("https://oss.sonatype.org/content/repositories/snapshots") }
-        // Velocity
-        maven { url = uri("https://nexus.velocitypowered.com/repository/maven-public/") }
+        // Velocity artifacts are served by the Paper repository above (nexus.velocitypowered.com is gone)
         // BStats
         maven { url = uri("https://repo.codemc.org/repository/maven-public") }
         // Adventure
@@ -52,11 +51,24 @@ project(":skinmotion-core") {
         implementation("org.yaml:snakeyaml:2.2")
         implementation("org.java-websocket:Java-WebSocket:1.5.6")
         compileOnly("org.jetbrains:annotations:24.0.1")
+
+        testImplementation(platform("org.junit:junit-bom:5.10.2"))
+        testImplementation("org.junit.jupiter:junit-jupiter")
+        testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    }
+
+    tasks.test {
+        useJUnitPlatform()
     }
 }
 
 project(":skinmotion-bukkit") {
     apply(plugin = "com.github.johnrengelman.shadow")
+
+    // Keep the unshaded jar from overwriting the shaded plugin jar of the same name
+    tasks.named<Jar>("jar") {
+        archiveClassifier.set("plain")
+    }
     
     dependencies {
         compileOnly("io.papermc.paper:paper-api:1.20.4-R0.1-SNAPSHOT")
@@ -80,6 +92,8 @@ project(":skinmotion-bukkit") {
         
         manifest {
             attributes(
+                // Only reflection is used against the server; tell Paper not to remap this jar
+                "paperweight-mappings-namespace" to "mojang",
                 "Built-By" to System.getProperty("user.name"),
                 "Version" to pluginVersion,
                 "Build-Timestamp" to SimpleDateFormat("yyyy-MM-dd' 'HH:mm:ss.SSSZ").format(Date()),
@@ -96,6 +110,13 @@ project(":skinmotion-bukkit") {
 }
 
 project(":skinmotion-bungee") {
+    apply(plugin = "com.github.johnrengelman.shadow")
+
+    // Keep the unshaded jar from overwriting the shaded plugin jar of the same name
+    tasks.named<Jar>("jar") {
+        archiveClassifier.set("plain")
+    }
+
     dependencies {
         compileOnly("net.md-5:bungeecord-api:1.20-R0.2")
         compileOnly("org.jetbrains:annotations:24.0.1")
@@ -105,29 +126,74 @@ project(":skinmotion-bungee") {
         implementation("net.kyori:adventure-text-minimessage:4.14.0")
         implementation("org.bstats:bstats-bungeecord:3.0.2")
     }
+
+    tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
+        archiveClassifier.set("")
+        archiveFileName.set("skinmotion-bungee-${pluginVersion}.jar")
+
+        // BungeeCord ships Gson; the proxy module never opens the plugin WebSocket
+        dependencies {
+            exclude(dependency("com.google.code.gson:gson"))
+            exclude(dependency("org.java-websocket:Java-WebSocket"))
+            exclude(dependency("org.slf4j:slf4j-api"))
+        }
+        relocate("org.bstats", "dev.th0rgal.skinmotion.shaded.bstats")
+        relocate("net.kyori", "dev.th0rgal.skinmotion.shaded.kyori")
+        relocate("org.yaml.snakeyaml", "dev.th0rgal.skinmotion.shaded.snakeyaml")
+    }
+
+    tasks.named("build") {
+        dependsOn(tasks.named("shadowJar"))
+    }
 }
 
 project(":skinmotion-velocity") {
+    apply(plugin = "com.github.johnrengelman.shadow")
+
+    // Keep the unshaded jar from overwriting the shaded plugin jar of the same name
+    tasks.named<Jar>("jar") {
+        archiveClassifier.set("plain")
+    }
+
     dependencies {
         compileOnly("com.velocitypowered:velocity-api:3.3.0-SNAPSHOT")
         compileOnly("org.jetbrains:annotations:24.0.1")
         implementation(project(":skinmotion-core"))
-        annotationProcessor("com.velocitypowered:velocity-api:3.3.0-SNAPSHOT")
 
         implementation("org.bstats:bstats-velocity:3.0.2")
     }
+
+    tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
+        archiveClassifier.set("")
+        archiveFileName.set("skinmotion-velocity-${pluginVersion}.jar")
+
+        // Velocity ships Adventure, MiniMessage and Gson; the proxy module never opens the plugin WebSocket
+        dependencies {
+            exclude(dependency("com.google.code.gson:gson"))
+            exclude(dependency("net.kyori:.*"))
+            exclude(dependency("org.java-websocket:Java-WebSocket"))
+            exclude(dependency("org.slf4j:slf4j-api"))
+        }
+        relocate("org.bstats", "dev.th0rgal.skinmotion.shaded.bstats")
+        relocate("org.yaml.snakeyaml", "dev.th0rgal.skinmotion.shaded.snakeyaml")
+    }
+
+    tasks.named("build") {
+        dependsOn(tasks.named("shadowJar"))
+    }
 }
 
-// Root project: copy the bukkit jar to build/libs as the main artifact
-tasks.register<Copy>("copyBukkitJar") {
-    dependsOn(":skinmotion-bukkit:shadowJar", ":skinmotion-bukkit:jar")
-    from(project(":skinmotion-bukkit").layout.buildDirectory.dir("libs")) {
-        include("skinmotion-bukkit-${pluginVersion}.jar")
+// Root project: collect one loadable jar per platform in build/libs
+tasks.register<Copy>("copyPlatformJars") {
+    dependsOn(":skinmotion-bukkit:shadowJar", ":skinmotion-bungee:shadowJar", ":skinmotion-velocity:shadowJar")
+    from(project(":skinmotion-bukkit").layout.buildDirectory.file("libs/skinmotion-bukkit-${pluginVersion}.jar")) {
+        rename { "skinmotion-${pluginVersion}.jar" }
     }
+    from(project(":skinmotion-bungee").layout.buildDirectory.file("libs/skinmotion-bungee-${pluginVersion}.jar"))
+    from(project(":skinmotion-velocity").layout.buildDirectory.file("libs/skinmotion-velocity-${pluginVersion}.jar"))
     into(layout.buildDirectory.dir("libs"))
-    rename("skinmotion-bukkit-${pluginVersion}.jar", "skinmotion-${pluginVersion}.jar")
 }
 
 tasks.named("build") {
-    dependsOn("copyBukkitJar")
+    dependsOn("copyPlatformJars")
 }

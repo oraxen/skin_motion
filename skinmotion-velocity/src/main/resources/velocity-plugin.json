@@ -1,0 +1,9 @@
+{
+  "id": "skinmotion",
+  "name": "SkinMotion",
+  "version": "${version}",
+  "description": "Official Minecraft capes for proxy players via the SkinMotion API",
+  "authors": ["th0rgal"],
+  "dependencies": [],
+  "main": "dev.th0rgal.skinmotion.velocity.SkinMotionVelocity"
+}
