@@ -11,7 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Configuration manager for the Custom Capes plugin.
+ * Configuration manager for the SkinMotion plugin.
  */
 public final class Config {
 
@@ -85,36 +85,78 @@ public final class Config {
             return config;
         }
 
+        Object loaded;
         try (InputStream input = new FileInputStream(configFile)) {
-            Yaml yaml = new Yaml();
-            Map<String, Object> data = yaml.load(input);
-            
-            if (data != null) {
-                config.loadFromMap(data);
-            }
-        } catch (IOException e) {
-            System.err.println("[SkinMotion] Failed to load config: " + e.getMessage());
+            loaded = new Yaml().load(input);
+        } catch (IOException | RuntimeException e) {
+            // Keep the user's file untouched so it can be fixed by hand
+            System.err.println("[SkinMotion] Failed to load config, using defaults: " + e.getMessage());
+            return config;
+        }
+
+        if (loaded == null) {
+            config.save(configFile);
+            return config;
+        }
+
+        Map<String, Object> data = asMap(loaded);
+        if (data == null) {
+            System.err.println("[SkinMotion] config.yml is not a YAML mapping, using defaults");
+            return config;
+        }
+
+        config.loadFromMap(data);
+
+        // Write back keys added in newer versions without touching existing values
+        if (addMissingKeys(data, new Config().toMap())) {
+            write(data, configFile);
         }
 
         return config;
     }
 
+    /**
+     * Recursively copy keys from {@code defaults} that are absent in {@code target}.
+     *
+     * @return true if at least one key was added
+     */
+    static boolean addMissingKeys(@NotNull Map<String, Object> target, @NotNull Map<String, Object> defaults) {
+        boolean changed = false;
+        for (Map.Entry<String, Object> entry : defaults.entrySet()) {
+            Object current = target.get(entry.getKey());
+            if (current == null) {
+                target.put(entry.getKey(), entry.getValue());
+                changed = true;
+            } else if (current instanceof Map && entry.getValue() instanceof Map) {
+                changed |= addMissingKeys(asMap(current), asMap(entry.getValue()));
+            }
+        }
+        return changed;
+    }
+
     @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object value) {
+        return value instanceof Map ? (Map<String, Object>) value : null;
+    }
+
     private void loadFromMap(Map<String, Object> data) {
-        Map<String, Object> api = (Map<String, Object>) data.get("api");
+        Map<String, Object> api = asMap(data.get("api"));
         if (api != null) {
-            this.apiUrl = getString(api, "url", DEFAULT_API_URL);
-            this.timeoutSeconds = getInt(api, "timeout_seconds", DEFAULT_TIMEOUT_SECONDS);
-            this.pluginApiKey = getString(api, "plugin_api_key", "");
+            this.apiUrl = getString(api, "url", DEFAULT_API_URL).trim();
+            if (this.apiUrl.isEmpty()) {
+                this.apiUrl = DEFAULT_API_URL;
+            }
+            this.timeoutSeconds = Math.max(1, getInt(api, "timeout_seconds", DEFAULT_TIMEOUT_SECONDS));
+            this.pluginApiKey = getString(api, "plugin_api_key", "").trim();
             this.serverId = getString(api, "server_id", DEFAULT_SERVER_ID);
         }
 
-        Map<String, Object> skin = (Map<String, Object>) data.get("skin");
+        Map<String, Object> skin = asMap(data.get("skin"));
         if (skin != null) {
             this.sendLinkOnJoin = getBoolean(skin, "send_link_on_join", true);
         }
 
-        Map<String, Object> messages = (Map<String, Object>) data.get("messages");
+        Map<String, Object> messages = asMap(data.get("messages"));
         if (messages != null) {
             this.prefix = getString(messages, "prefix", prefix);
             this.capeApplied = getString(messages, "cape_applied", capeApplied);
@@ -140,6 +182,13 @@ public final class Config {
         if (value instanceof Number) {
             return ((Number) value).intValue();
         }
+        if (value instanceof String) {
+            try {
+                return Integer.parseInt(((String) value).trim());
+            } catch (NumberFormatException ignored) {
+                // Fall through to the default
+            }
+        }
         return defaultValue;
     }
 
@@ -148,6 +197,12 @@ public final class Config {
         if (value instanceof Boolean) {
             return (Boolean) value;
         }
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (text.equalsIgnoreCase("true") || text.equalsIgnoreCase("false")) {
+                return Boolean.parseBoolean(text);
+            }
+        }
         return defaultValue;
     }
 
@@ -155,6 +210,33 @@ public final class Config {
      * Save the configuration to a file.
      */
     public void save(@NotNull File configFile) {
+        write(toMap(), configFile);
+    }
+
+    private static void write(@NotNull Map<String, Object> data, @NotNull File configFile) {
+        try {
+            if (!configFile.exists()) {
+                configFile.getParentFile().mkdirs();
+                configFile.createNewFile();
+            }
+            
+            DumperOptions options = new DumperOptions();
+            options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+            options.setPrettyFlow(true);
+            options.setIndent(2);
+            options.setWidth(120);
+            
+            Yaml yaml = new Yaml(options);
+            try (Writer writer = new FileWriter(configFile)) {
+                yaml.dump(data, writer);
+            }
+        } catch (IOException e) {
+            System.err.println("[SkinMotion] Failed to save config: " + e.getMessage());
+        }
+    }
+
+    @NotNull
+    private Map<String, Object> toMap() {
         Map<String, Object> data = new LinkedHashMap<>();
 
         Map<String, Object> api = new LinkedHashMap<>();
@@ -181,26 +263,7 @@ public final class Config {
         messages.put("list_entry", listEntry);
         messages.put("applying", applying);
         data.put("messages", messages);
-
-        try {
-            if (!configFile.exists()) {
-                configFile.getParentFile().mkdirs();
-                configFile.createNewFile();
-            }
-            
-            DumperOptions options = new DumperOptions();
-            options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
-            options.setPrettyFlow(true);
-            options.setIndent(2);
-            options.setWidth(120);
-            
-            Yaml yaml = new Yaml(options);
-            try (Writer writer = new FileWriter(configFile)) {
-                yaml.dump(data, writer);
-            }
-        } catch (IOException e) {
-            System.err.println("[SkinMotion] Failed to save config: " + e.getMessage());
-        }
+        return data;
     }
 
     // Getters
