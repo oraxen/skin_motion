@@ -1,5 +1,6 @@
 package dev.th0rgal.skinmotion.core.websocket;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.jetbrains.annotations.NotNull;
@@ -60,18 +61,29 @@ public class WsMessage {
 
     @Nullable
     public String getString(String key) {
-        if (data == null || !data.has(key)) return null;
-        return data.get(key).getAsString();
+        JsonElement value = primitive(key);
+        return value != null ? value.getAsString() : null;
     }
 
     public int getInt(String key, int defaultValue) {
-        if (data == null || !data.has(key)) return defaultValue;
-        return data.get(key).getAsInt();
+        JsonElement value = primitive(key);
+        try {
+            return value != null ? value.getAsInt() : defaultValue;
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 
     public boolean getBoolean(String key, boolean defaultValue) {
-        if (data == null || !data.has(key)) return defaultValue;
-        return data.get(key).getAsBoolean();
+        JsonElement value = primitive(key);
+        return value != null ? value.getAsBoolean() : defaultValue;
+    }
+
+    @Nullable
+    private JsonElement primitive(String key) {
+        if (data == null) return null;
+        JsonElement value = data.get(key);
+        return value != null && value.isJsonPrimitive() ? value : null;
     }
 
     /**
@@ -85,8 +97,8 @@ public class WsMessage {
             Type type = Type.fromJson(typeStr);
             if (type == null) return null;
 
-            JsonObject data = obj.has("data") ? obj.getAsJsonObject("data") : null;
-            return new WsMessage(type, data);
+            JsonElement data = obj.get("data");
+            return new WsMessage(type, data != null && data.isJsonObject() ? data.getAsJsonObject() : null);
         } catch (Exception e) {
             return null;
         }
@@ -96,20 +108,26 @@ public class WsMessage {
      * Create JSON for PlayerOnline message.
      */
     public static String playerOnline(String uuid, String username) {
-        return String.format(
-            "{\"type\":\"PlayerOnline\",\"data\":{\"minecraft_uuid\":\"%s\",\"minecraft_username\":\"%s\"}}",
-            uuid, username
-        );
+        JsonObject data = new JsonObject();
+        data.addProperty("minecraft_uuid", uuid);
+        data.addProperty("minecraft_username", username);
+        return envelope(Type.PLAYER_ONLINE, data);
     }
 
     /**
      * Create JSON for PlayerOffline message.
      */
     public static String playerOffline(String uuid) {
-        return String.format(
-            "{\"type\":\"PlayerOffline\",\"data\":{\"minecraft_uuid\":\"%s\"}}",
-            uuid
-        );
+        JsonObject data = new JsonObject();
+        data.addProperty("minecraft_uuid", uuid);
+        return envelope(Type.PLAYER_OFFLINE, data);
+    }
+
+    private static String envelope(Type type, JsonObject data) {
+        JsonObject message = new JsonObject();
+        message.addProperty("type", type.getJsonType());
+        message.add("data", data);
+        return message.toString();
     }
 
     /**

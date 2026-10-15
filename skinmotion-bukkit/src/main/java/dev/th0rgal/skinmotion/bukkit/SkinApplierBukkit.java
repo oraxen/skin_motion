@@ -1,6 +1,7 @@
 package dev.th0rgal.skinmotion.bukkit;
 
 import dev.th0rgal.skinmotion.bukkit.paper.PaperSkinApplier;
+import dev.th0rgal.skinmotion.bukkit.scheduler.PlatformScheduler;
 import dev.th0rgal.skinmotion.bukkit.spigot.SpigotSkinApplier;
 import dev.th0rgal.skinmotion.core.model.SkinProperty;
 import org.bukkit.Bukkit;
@@ -19,13 +20,15 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class SkinApplierBukkit {
 
     private final SkinMotionPlugin plugin;
+    private final PlatformScheduler scheduler;
     private final boolean isPaper;
     
     // Store original skins for restoration
     private final Map<UUID, SkinProperty> originalSkins = new ConcurrentHashMap<>();
 
-    public SkinApplierBukkit(@NotNull SkinMotionPlugin plugin) {
+    public SkinApplierBukkit(@NotNull SkinMotionPlugin plugin, @NotNull PlatformScheduler scheduler) {
         this.plugin = plugin;
+        this.scheduler = scheduler;
         this.isPaper = detectPaper();
         
         if (isPaper) {
@@ -36,34 +39,24 @@ public final class SkinApplierBukkit {
     }
 
     /**
-     * Apply a skin property to a player.
+     * Apply a skin property to a player. May be called from any thread.
      *
      * @param player   The player to apply the skin to
      * @param property The skin property containing texture value and signature
      */
     public void applySkin(@NotNull Player player, @NotNull SkinProperty property) {
-        if (!player.isOnline()) {
-            return;
-        }
-
-        // Store original skin if not already stored
-        storeOriginalSkin(player);
-
-        // Run on main thread
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        scheduler.runForEntity(player, () -> {
             if (!player.isOnline()) {
                 return;
             }
 
-            // Apply the skin using the appropriate method
-            if (isPaper) {
-                PaperSkinApplier.applySkin(player, property);
-            } else {
-                SpigotSkinApplier.applySkin(player, property);
-            }
+            // Store original skin if not already stored
+            storeOriginalSkin(player);
 
-            // Refresh the player for other players to see the change
-            refreshPlayer(player);
+            if (property.equals(getCurrentSkin(player))) {
+                return;
+            }
+            setSkin(player, property);
         });
     }
 
@@ -83,21 +76,23 @@ public final class SkinApplierBukkit {
             return false;
         }
 
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            if (!player.isOnline()) {
-                return;
+        scheduler.runForEntity(player, () -> {
+            if (player.isOnline()) {
+                setSkin(player, original);
             }
-
-            if (isPaper) {
-                PaperSkinApplier.applySkin(player, original);
-            } else {
-                SpigotSkinApplier.applySkin(player, original);
-            }
-
-            refreshPlayer(player);
         });
 
         return true;
+    }
+
+    private void setSkin(@NotNull Player player, @NotNull SkinProperty property) {
+        if (isPaper) {
+            // Paper re-sends the profile to every viewer and respawns the player for themselves
+            PaperSkinApplier.applySkin(player, property);
+        } else {
+            SpigotSkinApplier.applySkin(player, property);
+            refreshPlayer(player);
+        }
     }
 
     /**
@@ -135,7 +130,7 @@ public final class SkinApplierBukkit {
     }
 
     /**
-     * Refresh the player so other players can see skin changes.
+     * Refresh the player so other players can see skin changes (Spigot only).
      * Uses hide/show technique to force client updates.
      */
     private void refreshPlayer(@NotNull Player player) {
@@ -151,20 +146,11 @@ public final class SkinApplierBukkit {
             other.hidePlayer(plugin, player);
             
             // Small delay to ensure the hide packet is sent
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            scheduler.runForEntityLater(player, () -> {
                 if (other.isOnline() && player.isOnline()) {
                     other.showPlayer(plugin, player);
                 }
             }, 2L);
-        }
-
-        // Try to send health update for the player themselves (Paper-specific)
-        if (isPaper) {
-            try {
-                player.sendHealthUpdate();
-            } catch (NoSuchMethodError ignored) {
-                // Not available on older Paper versions
-            }
         }
     }
 

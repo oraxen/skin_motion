@@ -16,6 +16,9 @@ import java.util.logging.Logger;
  * SQLite-based storage for persisting skin configurations locally.
  * This allows skins to persist between login/logout without needing to
  * fetch from the API every time.
+ * <p>
+ * All access goes through a single JDBC connection, so every public method is synchronized:
+ * callers run on async, HTTP and main/region threads concurrently.
  */
 public final class SkinStorage {
 
@@ -32,13 +35,16 @@ public final class SkinStorage {
     /**
      * Initialize the database connection and create tables if needed.
      */
-    public void initialize() throws SQLException {
+    public synchronized void initialize() throws SQLException {
         if (!databaseFile.getParentFile().exists()) {
             databaseFile.getParentFile().mkdirs();
         }
 
         String url = "jdbc:sqlite:" + databaseFile.getAbsolutePath();
         connection = DriverManager.getConnection(url);
+        try (Statement stmt = connection.createStatement()) {
+            stmt.execute("PRAGMA foreign_keys = ON");
+        }
         
         createTables();
         migrateIfNeeded();
@@ -122,7 +128,10 @@ public final class SkinStorage {
     /**
      * Save a skin configuration to local storage.
      */
-    public void saveSkin(@NotNull SkinConfig config) {
+    public synchronized void saveSkin(@NotNull SkinConfig config) {
+        if (connection == null) {
+            return;
+        }
         try {
             connection.setAutoCommit(false);
 
@@ -189,7 +198,10 @@ public final class SkinStorage {
      * Load a skin configuration from local storage.
      */
     @Nullable
-    public SkinConfig loadSkin(@NotNull UUID playerId) {
+    public synchronized SkinConfig loadSkin(@NotNull UUID playerId) {
+        if (connection == null) {
+            return null;
+        }
         String uuid = playerId.toString();
         
         try {
@@ -250,7 +262,10 @@ public final class SkinStorage {
     /**
      * Check if a player has a persisted skin.
      */
-    public boolean hasSkin(@NotNull UUID playerId) {
+    public synchronized boolean hasSkin(@NotNull UUID playerId) {
+        if (connection == null) {
+            return false;
+        }
         try (PreparedStatement stmt = connection.prepareStatement(
                 "SELECT 1 FROM skin_configs WHERE minecraft_uuid = ? LIMIT 1")) {
             stmt.setString(1, playerId.toString());
@@ -266,11 +281,19 @@ public final class SkinStorage {
     /**
      * Delete a player's skin from local storage.
      */
-    public void deleteSkin(@NotNull UUID playerId) {
-        try (PreparedStatement stmt = connection.prepareStatement(
-                "DELETE FROM skin_configs WHERE minecraft_uuid = ?")) {
-            stmt.setString(1, playerId.toString());
-            stmt.executeUpdate();
+    public synchronized void deleteSkin(@NotNull UUID playerId) {
+        if (connection == null) {
+            return;
+        }
+        // Frames are deleted explicitly too: databases created before foreign keys were enabled may hold orphans
+        try (PreparedStatement frames = connection.prepareStatement(
+                "DELETE FROM skin_frames WHERE minecraft_uuid = ?");
+             PreparedStatement configs = connection.prepareStatement(
+                     "DELETE FROM skin_configs WHERE minecraft_uuid = ?")) {
+            frames.setString(1, playerId.toString());
+            frames.executeUpdate();
+            configs.setString(1, playerId.toString());
+            configs.executeUpdate();
             logger.fine("Deleted skin for " + playerId);
         } catch (SQLException e) {
             logger.warning("Failed to delete skin: " + e.getMessage());
@@ -280,7 +303,7 @@ public final class SkinStorage {
     /**
      * Close the database connection.
      */
-    public void close() {
+    public synchronized void close() {
         if (connection != null) {
             try {
                 connection.close();
@@ -288,6 +311,7 @@ public final class SkinStorage {
             } catch (SQLException e) {
                 logger.warning("Failed to close database: " + e.getMessage());
             }
+            connection = null;
         }
     }
 }

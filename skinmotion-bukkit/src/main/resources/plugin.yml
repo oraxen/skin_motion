@@ -2,6 +2,7 @@ name: SkinMotion
 version: ${version}
 main: dev.th0rgal.skinmotion.bukkit.SkinMotionPlugin
 api-version: "1.20"
+folia-supported: true
 description: Animated Minecraft skins with real-time web dashboard
 authors:
   - th0rgal

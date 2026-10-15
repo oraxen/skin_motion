@@ -19,14 +19,9 @@ import java.nio.file.Path;
 
 /**
  * Main entry point for the SkinMotion Velocity plugin.
+ * The plugin descriptor is {@code velocity-plugin.json} so the version follows the build.
  */
-@Plugin(
-    id = "skinmotion",
-    name = "SkinMotion",
-    version = "1.0.0",
-    description = "Custom animated skins with real-time updates via web dashboard",
-    authors = {"th0rgal"}
-)
+@Plugin(id = "skinmotion")
 public final class SkinMotionVelocity {
 
     private final ProxyServer server;

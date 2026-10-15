@@ -1,38 +1,53 @@
 package dev.th0rgal.skinmotion.bukkit;
 
-import dev.th0rgal.skinmotion.bukkit.npc.FakePlayer;
+import dev.th0rgal.skinmotion.bukkit.nms.PlayerInfoPackets;
+import dev.th0rgal.skinmotion.bukkit.scheduler.PlatformScheduler;
+import dev.th0rgal.skinmotion.core.animation.FrameCursor;
 import dev.th0rgal.skinmotion.core.model.SkinConfig;
 import dev.th0rgal.skinmotion.core.model.SkinFrame;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitTask;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Task that broadcasts animated skin frames to viewers.
- * Each player with an animated skin gets their frames cycled for all viewers.
+ * Each player with an animated skin gets their frames cycled for every player tracking them;
+ * the player themselves keeps seeing the first frame.
+ * <p>
+ * Frame timing runs once per tick on the main thread (global region on Folia). Sending a frame
+ * runs on the thread owning the animated player, so viewer access is region-safe on Folia.
  */
 public class SkinAnimationTask implements Runnable {
 
     private final SkinMotionPlugin plugin;
-    private BukkitTask task;
+    private final PlatformScheduler scheduler;
+    @Nullable
+    private final PlayerInfoPackets packets;
+    private PlatformScheduler.Cancellable task;
 
-    // Track current frame index per player
-    private final Map<UUID, Integer> playerFrameIndex = new ConcurrentHashMap<>();
+    private final Map<UUID, FrameCursor> cursors = new ConcurrentHashMap<>();
+    private final Set<UUID> warnedPlayers = ConcurrentHashMap.newKeySet();
 
-    // Track tick counter per player (for variable frame rates)
-    private final Map<UUID, Integer> playerTickCounter = new ConcurrentHashMap<>();
-
-    public SkinAnimationTask(SkinMotionPlugin plugin) {
+    public SkinAnimationTask(@NotNull SkinMotionPlugin plugin, @NotNull PlatformScheduler scheduler) {
         this.plugin = plugin;
+        this.scheduler = scheduler;
+        this.packets = PlayerInfoPackets.create(plugin.getLogger());
     }
 
     public void start() {
-        // Run every tick
-        task = Bukkit.getScheduler().runTaskTimer(plugin, this, 20L, 1L);
+        if (packets == null) {
+            plugin.getLogger().warning("[SkinAnimation] Animation disabled; players will only get their first frame");
+            return;
+        }
+        task = scheduler.runGlobalTimer(this, 20L, 1L);
         plugin.getLogger().info("[SkinAnimation] Animation task started");
     }
 
@@ -40,113 +55,103 @@ public class SkinAnimationTask implements Runnable {
         if (task != null) {
             task.cancel();
             task = null;
+            plugin.getLogger().info("[SkinAnimation] Animation task stopped");
         }
-        playerFrameIndex.clear();
-        playerTickCounter.clear();
-        plugin.getLogger().info("[SkinAnimation] Animation task stopped");
+        cursors.clear();
+        warnedPlayers.clear();
+    }
+
+    public boolean isAvailable() {
+        return packets != null;
     }
 
     @Override
     public void run() {
         for (Player player : Bukkit.getOnlinePlayers()) {
-            SkinConfig config = plugin.getPlayerSkinConfig(player.getUniqueId());
+            UUID playerId = player.getUniqueId();
+            SkinConfig config = plugin.getPlayerSkinConfig(playerId);
 
             // Skip if no config, not animated, or disabled
             if (config == null || !config.isAnimated()) {
+                cursors.remove(playerId);
                 continue;
             }
 
-            UUID playerId = player.getUniqueId();
-
-            // Increment tick counter
-            int tickCounter = playerTickCounter.getOrDefault(playerId, 0) + 1;
-
-            // Check if it's time to advance to next frame
-            if (tickCounter >= config.getFrameDurationTicks()) {
-                tickCounter = 0;
-
-                // Get current frame index
-                int frameIndex = playerFrameIndex.getOrDefault(playerId, 0);
-                int frameCount = config.getFrameCount();
-
-                // Advance to next frame based on loop mode
-                frameIndex = advanceFrame(frameIndex, frameCount, config.getLoopMode());
-                playerFrameIndex.put(playerId, frameIndex);
-
-                // Get the frame
-                SkinFrame frame = config.getFrame(frameIndex);
-                if (frame != null) {
-                    // Broadcast skin update to all viewers (except the player themselves)
-                    broadcastSkinUpdate(player, frame);
-                }
+            FrameCursor cursor = cursors.computeIfAbsent(playerId, id -> new FrameCursor());
+            int frameIndex = cursor.tick(config.getFrameCount(), config.getFrameDurationTicks(), config.getLoopMode());
+            if (frameIndex == FrameCursor.UNCHANGED) {
+                continue;
             }
 
-            playerTickCounter.put(playerId, tickCounter);
+            SkinFrame frame = config.getFrame(frameIndex);
+            if (frame == null) {
+                continue;
+            }
+
+            if (scheduler.isOwnedByCurrentThread(player)) {
+                broadcastFrame(player, frame);
+            } else {
+                scheduler.runForEntity(player, () -> broadcastFrame(player, frame));
+            }
         }
     }
 
     /**
-     * Advance to the next frame based on loop mode.
+     * Show a frame to every player currently tracking {@code target}.
+     * The viewer's client only builds a new skin when the player info entry is re-created, so the
+     * target is hidden, re-announced with the frame's texture, then shown again. Bukkit's show
+     * re-sends the real profile, but the client keeps the first ADD_PLAYER entry it receives
+     * and applies the remaining updates (listed, game mode, chat session) on top of it.
      */
-    private int advanceFrame(int current, int frameCount, String loopMode) {
-        if (frameCount <= 1) {
-            return 0;
+    private void broadcastFrame(@NotNull Player target, @NotNull SkinFrame frame) {
+        if (packets == null || !target.isOnline()) {
+            return;
         }
 
-        switch (loopMode) {
-            case "ping_pong" -> {
-                // TODO: Implement ping-pong (need direction tracking)
-                return (current + 1) % frameCount;
+        Object packet;
+        try {
+            packet = packets.createAddPlayerPacket(target.getUniqueId(), target.getName(), frame.toSkinProperty());
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            warnOnce(target, "Failed to build skin frame packet for " + target.getName() + ": " + e);
+            return;
+        }
+
+        List<Player> viewers = new ArrayList<>(target.getTrackedBy());
+        for (Player viewer : viewers) {
+            if (viewer.equals(target) || !viewer.isOnline() || !viewer.canSee(target)
+                    || !scheduler.isOwnedByCurrentThread(viewer)) {
+                continue;
             }
-            case "once" -> {
-                if (current < frameCount - 1) {
-                    return current + 1;
-                }
-                return current; // Stay on last frame
-            }
-            default -> { // "loop"
-                return (current + 1) % frameCount;
+
+            viewer.hidePlayer(plugin, target);
+            try {
+                packets.send(viewer, packet);
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                warnOnce(target, "Failed to send skin frame of " + target.getName() + " to " + viewer.getName() + ": " + e);
+            } finally {
+                viewer.showPlayer(plugin, target);
             }
         }
     }
 
-    /**
-     * Broadcast a skin update to all players who can see the target player.
-     */
-    private void broadcastSkinUpdate(Player target, SkinFrame frame) {
-        for (Player viewer : Bukkit.getOnlinePlayers()) {
-            // Don't update the player's view of themselves
-            if (viewer.equals(target)) {
-                continue;
-            }
-
-            // Check if viewer can see target
-            if (!viewer.canSee(target)) {
-                continue;
-            }
-
-            // Check distance (only broadcast to nearby players)
-            if (viewer.getWorld().equals(target.getWorld()) &&
-                    viewer.getLocation().distanceSquared(target.getLocation()) < 64 * 64) {
-
-                // Send skin update packet
-                try {
-                    FakePlayer.sendSkinUpdatePacket(viewer, target, frame.toSkinProperty());
-                } catch (Exception e) {
-                    // Log once per player, not every tick
-                    if (playerTickCounter.get(target.getUniqueId()) == 0) {
-                        plugin.getLogger().warning("Failed to send skin update to " + viewer.getName() + ": " + e.getMessage());
-                    }
-                }
-            }
+    private void warnOnce(Player target, String message) {
+        if (warnedPlayers.add(target.getUniqueId())) {
+            plugin.getLogger().warning(message);
         }
     }
 
     /**
-     * Reset animation state for a player.
+     * Restart a player's animation from the first frame.
      */
     public void resetPlayer(UUID playerId) {
-        playerFrameIndex.remove(playerId);
-        playerTickCounter.remove(playerId);
+        cursors.remove(playerId);
+    }
+
+    /**
+     * Drop all animation state for a player who left.
+     */
+    public void removePlayer(UUID playerId) {
+        cursors.remove(playerId);
+        warnedPlayers.remove(playerId);
     }
 }

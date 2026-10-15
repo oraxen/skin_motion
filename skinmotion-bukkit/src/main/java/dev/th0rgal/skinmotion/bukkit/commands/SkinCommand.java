@@ -1,7 +1,9 @@
 package dev.th0rgal.skinmotion.bukkit.commands;
 
 import dev.th0rgal.skinmotion.bukkit.SkinMotionPlugin;
+import dev.th0rgal.skinmotion.bukkit.scheduler.PlatformScheduler;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -17,6 +19,7 @@ import java.util.List;
 
 /**
  * Command handler for /skin subcommands.
+ * {@code status}, {@code reload} and help also work from the console.
  */
 public class SkinCommand implements CommandExecutor, TabCompleter {
 
@@ -30,126 +33,140 @@ public class SkinCommand implements CommandExecutor, TabCompleter {
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command,
                              @NotNull String label, @NotNull String[] args) {
 
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("This command can only be used by players.");
-            return true;
-        }
-
         if (args.length == 0) {
-            showHelp(player);
+            showHelp(sender);
             return true;
         }
 
         String subCommand = args[0].toLowerCase();
 
         switch (subCommand) {
-            case "link" -> handleLink(player);
-            case "refresh" -> handleRefresh(player);
-            case "status" -> handleStatus(player);
-            case "reload" -> handleReload(player);
-            default -> showHelp(player);
+            case "link" -> handleLink(sender);
+            case "refresh" -> handleRefresh(sender);
+            case "status" -> handleStatus(sender);
+            case "reload" -> handleReload(sender);
+            default -> showHelp(sender);
         }
 
         return true;
     }
 
-    private void handleLink(Player player) {
-        if (!player.hasPermission("skinmotion.link")) {
-            sendNoPermission(player);
+    private void handleLink(CommandSender sender) {
+        if (!sender.hasPermission("skinmotion.link")) {
+            sendNoPermission(sender);
             return;
         }
-        plugin.getAudiences().player(player).sendMessage(
-                Component.text("Generating dashboard link...", NamedTextColor.GRAY)
-        );
+        if (!(sender instanceof Player player)) {
+            sendPlayerOnly(sender);
+            return;
+        }
+        plugin.reply(player, Component.text("Generating dashboard link...", NamedTextColor.GRAY));
         plugin.sendDashboardLink(player);
     }
 
-    private void handleRefresh(Player player) {
-        if (!player.hasPermission("skinmotion.refresh")) {
-            sendNoPermission(player);
+    private void handleRefresh(CommandSender sender) {
+        if (!sender.hasPermission("skinmotion.refresh")) {
+            sendNoPermission(sender);
             return;
         }
-        plugin.getAudiences().player(player).sendMessage(
-                Component.text("Refreshing your skin...", NamedTextColor.GRAY)
-        );
-        plugin.refreshPlayerSkin(player);
+        if (!(sender instanceof Player player)) {
+            sendPlayerOnly(sender);
+            return;
+        }
+        plugin.reply(player, Component.text("Refreshing your skin...", NamedTextColor.GRAY));
+        plugin.syncSkin(player, true);
     }
 
-    private void handleStatus(Player player) {
-        if (!player.hasPermission("skinmotion.status")) {
-            sendNoPermission(player);
+    private void handleStatus(CommandSender sender) {
+        if (!sender.hasPermission("skinmotion.status")) {
+            sendNoPermission(sender);
             return;
         }
         boolean wsConnected = plugin.isWebSocketConnected();
-        var skinConfig = plugin.getPlayerSkinConfig(player.getUniqueId());
-        boolean hasPersisted = plugin.hasPersistedSkin(player.getUniqueId());
 
-        plugin.getAudiences().player(player).sendMessage(
-                Component.text()
-                        .append(Component.text("SkinMotion Status", NamedTextColor.GREEN))
-                        .append(Component.newline())
-                        .append(Component.text("WebSocket: ", NamedTextColor.GRAY))
-                        .append(wsConnected
-                                ? Component.text("Connected ✓", NamedTextColor.GREEN)
-                                : Component.text("Disconnected ✗", NamedTextColor.RED))
-                        .append(Component.newline())
-                        .append(Component.text("SkinMotion: ", NamedTextColor.GRAY))
-                        .append(skinConfig != null
-                                ? Component.text("Active (" + skinConfig.getFrameCount() + " frames)", NamedTextColor.GREEN)
-                                : Component.text("None", NamedTextColor.YELLOW))
-                        .append(Component.newline())
-                        .append(Component.text("Persisted: ", NamedTextColor.GRAY))
-                        .append(hasPersisted
-                                ? Component.text("Yes ✓", NamedTextColor.GREEN)
-                                : Component.text("No", NamedTextColor.YELLOW))
-                        .build()
-        );
+        TextComponent.Builder builder = Component.text()
+                .append(Component.text("SkinMotion Status", NamedTextColor.GREEN))
+                .append(Component.newline())
+                .append(Component.text("WebSocket: ", NamedTextColor.GRAY))
+                .append(wsConnected
+                        ? Component.text("Connected ✓", NamedTextColor.GREEN)
+                        : Component.text(plugin.hasApiKey() ? "Disconnected ✗" : "Disabled (no plugin_api_key)",
+                                NamedTextColor.RED))
+                .append(Component.newline())
+                .append(Component.text("Animation: ", NamedTextColor.GRAY))
+                .append(plugin.isAnimationAvailable()
+                        ? Component.text("Available", NamedTextColor.GREEN)
+                        : Component.text("Unavailable on this server", NamedTextColor.RED))
+                .append(Component.newline())
+                .append(Component.text("Scheduler: ", NamedTextColor.GRAY))
+                .append(Component.text(PlatformScheduler.isFolia() ? "Folia regions" : "Bukkit", NamedTextColor.WHITE));
+
+        if (sender instanceof Player player) {
+            var skinConfig = plugin.getPlayerSkinConfig(player.getUniqueId());
+            boolean hasPersisted = plugin.hasPersistedSkin(player.getUniqueId());
+            builder.append(Component.newline())
+                    .append(Component.text("SkinMotion: ", NamedTextColor.GRAY))
+                    .append(skinConfig != null
+                            ? Component.text("Active (" + skinConfig.getFrameCount() + " frames)", NamedTextColor.GREEN)
+                            : Component.text("None", NamedTextColor.YELLOW))
+                    .append(Component.newline())
+                    .append(Component.text("Persisted: ", NamedTextColor.GRAY))
+                    .append(hasPersisted
+                            ? Component.text("Yes ✓", NamedTextColor.GREEN)
+                            : Component.text("No", NamedTextColor.YELLOW));
+        } else {
+            builder.append(Component.newline())
+                    .append(Component.text("Online players with a skin: ", NamedTextColor.GRAY))
+                    .append(Component.text(plugin.getPlayerSkins().size(), NamedTextColor.WHITE));
+        }
+
+        plugin.reply(sender, builder.build());
     }
 
-    private void handleReload(Player player) {
-        if (!player.hasPermission("skinmotion.reload")) {
-            sendNoPermission(player);
+    private void handleReload(CommandSender sender) {
+        if (!sender.hasPermission("skinmotion.reload")) {
+            sendNoPermission(sender);
             return;
         }
 
         plugin.reload();
-        plugin.getAudiences().player(player).sendMessage(
-                Component.text("Configuration reloaded.", NamedTextColor.GREEN)
-        );
+        plugin.reply(sender, Component.text("Configuration reloaded.", NamedTextColor.GREEN));
     }
 
-    private void sendNoPermission(Player player) {
-        plugin.getAudiences().player(player).sendMessage(
-                Component.text("You don't have permission to use this command.", NamedTextColor.RED)
-        );
+    private void sendNoPermission(CommandSender sender) {
+        plugin.reply(sender, Component.text("You don't have permission to use this command.", NamedTextColor.RED));
     }
 
-    private void showHelp(Player player) {
+    private void sendPlayerOnly(CommandSender sender) {
+        plugin.reply(sender, Component.text("This command can only be used by players.", NamedTextColor.RED));
+    }
+
+    private void showHelp(CommandSender sender) {
         var builder = Component.text()
                 .append(Component.text("SkinMotion Commands:", NamedTextColor.GREEN));
 
-        if (player.hasPermission("skinmotion.link")) {
+        if (sender.hasPermission("skinmotion.link")) {
             builder.append(Component.newline())
                     .append(Component.text("/skin link", NamedTextColor.AQUA))
                     .append(Component.text(" - Get dashboard link to customize your skin", NamedTextColor.GRAY));
         }
-        if (player.hasPermission("skinmotion.refresh")) {
+        if (sender.hasPermission("skinmotion.refresh")) {
             builder.append(Component.newline())
                     .append(Component.text("/skin refresh", NamedTextColor.AQUA))
                     .append(Component.text(" - Manually refresh your skin", NamedTextColor.GRAY));
         }
-        if (player.hasPermission("skinmotion.status")) {
+        if (sender.hasPermission("skinmotion.status")) {
             builder.append(Component.newline())
                     .append(Component.text("/skin status", NamedTextColor.AQUA))
                     .append(Component.text(" - Check connection status", NamedTextColor.GRAY));
         }
-        if (player.hasPermission("skinmotion.reload")) {
+        if (sender.hasPermission("skinmotion.reload")) {
             builder.append(Component.newline())
                     .append(Component.text("/skin reload", NamedTextColor.AQUA))
                     .append(Component.text(" - Reload plugin configuration", NamedTextColor.GRAY));
         }
 
-        plugin.getAudiences().player(player).sendMessage(builder.build());
+        plugin.reply(sender, builder.build());
     }
 
     @Override
@@ -158,7 +175,7 @@ public class SkinCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             String input = args[0].toLowerCase();
             List<String> completions = new ArrayList<>();
-            
+
             if (sender.hasPermission("skinmotion.link") && "link".startsWith(input)) {
                 completions.add("link");
             }
@@ -171,7 +188,7 @@ public class SkinCommand implements CommandExecutor, TabCompleter {
             if (sender.hasPermission("skinmotion.reload") && "reload".startsWith(input)) {
                 completions.add("reload");
             }
-            
+
             return completions;
         }
         return Collections.emptyList();
