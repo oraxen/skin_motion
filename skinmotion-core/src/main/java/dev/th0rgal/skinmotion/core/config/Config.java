@@ -18,6 +18,9 @@ public final class Config {
     private static final String DEFAULT_API_URL = "https://ccapi.thomas.md";
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
     private static final String DEFAULT_SERVER_ID = "default";
+    static final String DEFAULT_PREFIX = "<gray>[<green>SkinMotion</green>]</gray> ";
+    // Default written by versions up to 2.1.0, from the plugin's "Custom Capes" days
+    static final String LEGACY_PREFIX = "<gray>[<gold>Capes</gold>]</gray> ";
 
     private String apiUrl;
     private int timeoutSeconds;
@@ -51,7 +54,7 @@ public final class Config {
         this.pluginApiKey = "";
         this.serverId = DEFAULT_SERVER_ID;
         this.sendLinkOnJoin = true;
-        this.prefix = "<gray>[<gold>Capes</gold>]</gray> ";
+        this.prefix = DEFAULT_PREFIX;
         this.capeApplied = "<green>Cape applied successfully!";
         this.capeCleared = "<green>Cape removed.";
         this.capeNotFound = "<red>Cape type not found: <white>%cape%";
@@ -105,10 +108,12 @@ public final class Config {
             return config;
         }
 
+        boolean changed = migrateLegacyPrefix(data);
         config.loadFromMap(data);
 
         // Write back keys added in newer versions without touching existing values
-        if (addMissingKeys(data, new Config().toMap())) {
+        changed |= addMissingKeys(data, new Config().toMap());
+        if (changed) {
             write(data, configFile);
         }
 
@@ -132,6 +137,20 @@ public final class Config {
             }
         }
         return changed;
+    }
+
+    /**
+     * Replace the old "[Capes]" prefix with the current default, unless the user customised it.
+     *
+     * @return true if the prefix was replaced
+     */
+    static boolean migrateLegacyPrefix(@NotNull Map<String, Object> data) {
+        Map<String, Object> messages = asMap(data.get("messages"));
+        if (messages == null || !LEGACY_PREFIX.equals(messages.get("prefix"))) {
+            return false;
+        }
+        messages.put("prefix", DEFAULT_PREFIX);
+        return true;
     }
 
     @SuppressWarnings("unchecked")
