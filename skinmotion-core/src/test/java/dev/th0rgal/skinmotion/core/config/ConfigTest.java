@@ -89,4 +89,18 @@ class ConfigTest {
 
         assertEquals("https://ccapi.thomas.md", Config.load(dataFolder.toFile()).getApiUrl());
     }
+
+    @Test
+    void replacesOldCapesPrefixButKeepsCustomOnes() throws IOException {
+        Files.writeString(configFile(), "messages:\n  prefix: '<gray>[<gold>Capes</gold>]</gray> '\n");
+
+        Config config = Config.load(dataFolder.toFile());
+
+        assertEquals(Config.DEFAULT_PREFIX, config.getPrefix());
+        assertTrue(read().contains("SkinMotion"));
+        assertFalse(read().contains("Capes"));
+
+        Files.writeString(configFile(), "messages:\n  prefix: '[MyServer] '\n");
+        assertEquals("[MyServer] ", Config.load(dataFolder.toFile()).getPrefix());
+    }
 }
