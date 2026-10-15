@@ -20,9 +20,9 @@ SkinMotion API.
 | Platform | Jar | Support |
 |----------|-----|---------|
 | Paper 1.20.5+ (tested 1.21.11, 26.2, 26.3) | `skinmotion-<version>.jar` | Full: skins, capes, animation, dashboard sync |
-| Folia (tested 26.2) | `skinmotion-<version>.jar` | Full, using region/entity schedulers |
+| Folia (tested 26.2, 26.3) | `skinmotion-<version>.jar` | Full, using region/entity schedulers |
 | Spigot | `skinmotion-<version>.jar` | Untested. Static first frame via reflection on versions whose authlib `GameProfile` still has mutable properties; no animation |
-| Velocity 3.3+ (tested 3.5.1) | `skinmotion-velocity-<version>.jar` | Legacy `/cape` command only |
+| Velocity 3.3+ (tested 3.5.1, 4.2.0) | `skinmotion-velocity-<version>.jar` | Legacy `/cape` command only |
 | BungeeCord | `skinmotion-bungee-<version>.jar` | Legacy `/cape` command only |
 
 Animation sends per-viewer player-info packets through reflection on the Mojang-mapped server, so it
