@@ -14,7 +14,6 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
@@ -93,9 +92,6 @@ public final class SkinMotionPlugin extends JavaPlugin implements Listener {
 
         // Register event listeners
         getServer().getPluginManager().registerEvents(this, this);
-
-        // Initialize bStats metrics
-        new Metrics(this, 23456);
 
         // Start animation task
         animationTask = new SkinAnimationTask(this, scheduler);

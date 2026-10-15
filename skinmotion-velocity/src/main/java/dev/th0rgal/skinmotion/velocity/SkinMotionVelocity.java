@@ -11,7 +11,6 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import dev.th0rgal.skinmotion.core.api.CapesApiClient;
 import dev.th0rgal.skinmotion.core.config.Config;
 import dev.th0rgal.skinmotion.velocity.commands.CapeCommand;
-import org.bstats.velocity.Metrics;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 
@@ -27,7 +26,6 @@ public final class SkinMotionVelocity {
     private final ProxyServer server;
     private final Logger logger;
     private final Path dataDirectory;
-    private final Metrics.Factory metricsFactory;
 
     private Config config;
     private CapesApiClient apiClient;
@@ -37,13 +35,11 @@ public final class SkinMotionVelocity {
     public SkinMotionVelocity(
             ProxyServer server,
             Logger logger,
-            @DataDirectory Path dataDirectory,
-            Metrics.Factory metricsFactory
+            @DataDirectory Path dataDirectory
     ) {
         this.server = server;
         this.logger = logger;
         this.dataDirectory = dataDirectory;
-        this.metricsFactory = metricsFactory;
     }
 
     @Subscribe
@@ -66,9 +62,6 @@ public final class SkinMotionVelocity {
                 .build(),
             new CapeCommand(this)
         );
-
-        // Initialize bStats
-        metricsFactory.make(this, 23456); // Replace with actual bStats plugin ID
 
         logger.info("SkinMotion (Velocity) enabled! API: {}", config.getApiUrl());
 

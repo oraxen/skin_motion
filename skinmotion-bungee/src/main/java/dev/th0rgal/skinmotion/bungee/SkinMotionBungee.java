@@ -5,7 +5,6 @@ import dev.th0rgal.skinmotion.core.api.CapesApiClient;
 import dev.th0rgal.skinmotion.core.config.Config;
 import net.kyori.adventure.platform.bungeecord.BungeeAudiences;
 import net.md_5.bungee.api.plugin.Plugin;
-import org.bstats.bungeecord.Metrics;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -34,9 +33,6 @@ public final class SkinMotionBungee extends Plugin {
 
         // Register commands
         getProxy().getPluginManager().registerCommand(this, new CapeCommand(this));
-
-        // Initialize bStats
-        new Metrics(this, 23456); // Replace with actual bStats plugin ID
 
         getLogger().info("SkinMotion (BungeeCord) enabled! API: " + config.getApiUrl());
 
